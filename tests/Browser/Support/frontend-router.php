@@ -20,6 +20,13 @@ $frontend = getenv('NEXORA_FRONTEND_ROOT');
 
 if ($path === '/__e2e/token') {
     $shop = getenv('NEXORA_E2E_SHOP');
+    if (! $shop || ! getenv('SHOPIFY_API_KEY') || ! getenv('SHOPIFY_API_SECRET')) {
+        // Fail loudly: a missing test secret otherwise surfaces as a confusing network error.
+        http_response_code(500);
+        error_log('E2E router: NEXORA_E2E_SHOP / SHOPIFY_API_KEY / SHOPIFY_API_SECRET not set');
+
+        return true;
+    }
     $now = time();
     header('Content-Type: text/plain');
     header('Cache-Control: no-store');

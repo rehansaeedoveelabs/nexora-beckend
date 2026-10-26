@@ -4,6 +4,7 @@ namespace Tests\Browser;
 
 use App\Models\Location;
 use App\Models\Shop;
+use Facebook\WebDriver\WebDriverBy;
 use Illuminate\Foundation\Testing\DatabaseMigrations;
 use Laravel\Dusk\Browser;
 use PHPUnit\Framework\Assert;
@@ -21,16 +22,26 @@ class LocationsFlowTest extends DuskTestCase
 
     private const WAIT = 15;
 
-    /** Text of a node including every open shadow root (Polaris headings, labels, errors). */
+    /**
+     * Visible text of a node: light DOM, open shadow roots, plus the text Polaris renders from
+     * component props (heading, label, error, details), which may live in closed shadow roots.
+     */
     private const DEEP_TEXT = <<<'JS'
-        const deepText = (node) => {
-            let text = node.shadowRoot ? deepText(node.shadowRoot) : '';
+        const PROPS = ['heading', 'label', 'error', 'details'];
+        const walk = (node) => {
+            if (node.tagName === 'STYLE' || node.tagName === 'SCRIPT') return ' ';
+            let text = node.shadowRoot ? walk(node.shadowRoot) : '';
+            if (node.tagName?.startsWith('S-')) {
+                for (const prop of PROPS) if (typeof node[prop] === 'string' && node[prop]) text += ` ${node[prop]} `;
+            }
             for (const child of node.childNodes) {
-                if (child.nodeType === Node.TEXT_NODE) text += child.textContent + ' ';
-                else if (child.nodeType === Node.ELEMENT_NODE) text += deepText(child);
+                // Adjacent text nodes join as-is (React splits `${n} selected` into two nodes); elements get a separator.
+                if (child.nodeType === Node.TEXT_NODE) text += child.textContent;
+                else if (child.nodeType === Node.ELEMENT_NODE) text += ` ${walk(child)} `;
             }
             return text;
         };
+        const deepText = (node) => walk(node).replace(/\s+/g, ' ');
     JS;
 
     protected function setUp(): void
@@ -185,10 +196,7 @@ class LocationsFlowTest extends DuskTestCase
             $browser->visit('/locations');
             $this->waitForText($browser, 'Shop location');
 
-            // A real WebDriver click, so Polaris handles commandFor/--show exactly like a user click.
-            $this->markByProperty($browser, 's-button', 'accessibilityLabel', 'Edit limits and tags for Shop location');
-            $browser->element('[data-e2e-target]')->click();
-            $this->waitForText($browser, 'Edit Shop location');
+            $this->openEditModal($browser, 'Shop location');
 
             $browser->script(<<<'JS'
                 const modal = document.getElementById('nx-location-modal');
@@ -217,9 +225,7 @@ class LocationsFlowTest extends DuskTestCase
             $browser->visit('/locations');
             $this->waitForText($browser, 'Shop location');
 
-            $this->markByProperty($browser, 's-button', 'accessibilityLabel', 'Edit limits and tags for Shop location');
-            $browser->element('[data-e2e-target]')->click();
-            $this->waitForText($browser, 'Edit Shop location');
+            $this->openEditModal($browser, 'Shop location');
 
             $browser->script(<<<'JS'
                 const field = document.querySelector('#nx-location-modal s-number-field');
@@ -300,6 +306,31 @@ class LocationsFlowTest extends DuskTestCase
         $browser->script(sprintf(<<<'JS'
             [...document.querySelectorAll('s-button')].find((b) => b.textContent.trim() === %s).click();
         JS, json_encode($text)));
+    }
+
+    /**
+     * Opens the edit modal with a real WebDriver click on the button inside <s-button>'s shadow DOM
+     * (the host element has zero size), so Polaris handles commandFor/--show exactly as for a user.
+     */
+    private function openEditModal(Browser $browser, string $locationName): void
+    {
+        $this->markByProperty($browser, 's-button', 'accessibilityLabel', "Edit limits and tags for {$locationName}");
+
+        // Polaris documents a `show` event on s-modal; record it to know the modal really opened.
+        $browser->script(<<<'JS'
+            window.__modalShown = false;
+            document.getElementById('nx-location-modal').addEventListener('show', () => { window.__modalShown = true; }, { once: true });
+        JS);
+
+        $button = $browser->element('[data-e2e-target]')
+            ->getShadowRoot()
+            ->findElement(WebDriverBy::cssSelector('button'));
+
+        // Pointer action (move + press): ChromeDriver's element click wrongly reports shadow-DOM
+        // buttons as "intercepted" by their own host element.
+        $browser->driver->action()->moveToElement($button)->click()->perform();
+
+        $browser->waitUsing(self::WAIT, 100, fn () => (bool) $browser->script('return window.__modalShown === true;')[0], 'Waited for the edit modal to open');
     }
 
     /** Tag the single element whose JS property matches, so WebDriver can target it. */
