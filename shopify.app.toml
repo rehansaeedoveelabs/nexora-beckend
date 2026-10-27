@@ -1,0 +1,51 @@
+# Nexora app configuration. Uploaded to Shopify with `shopify app deploy`.
+# Safe to commit: contains the public client_id, no secret.
+# Learn more: https://shopify.dev/docs/apps/tools/cli/configuration
+
+client_id = "687747fff1ba6b2a7bfcccdfde55f410"
+name = "Nexora"
+embedded = true
+
+# The embedded app UI (the React frontend). For local dev this is a tunnel to the Vite dev server;
+# `automatically_update_urls_on_dev` rewrites it while `shopify app dev` runs.
+application_url = "https://REPLACE-WITH-FRONTEND-TUNNEL.example.com"
+
+[access_scopes]
+# Request only what shipped features use. Phase 1 reads locations; Phase 2b adds the rest
+# (orders, inventory, fulfillment orders, constraint rules) when those features ship.
+scopes = "read_locations"
+# Token exchange (managed install) — no OAuth redirect dance.
+use_legacy_install_flow = false
+
+[auth]
+redirect_urls = [ "https://REPLACE-WITH-FRONTEND-TUNNEL.example.com/api/auth" ]
+
+[webhooks]
+api_version = "2027-01"
+
+  # All webhooks hit the backend's single verified endpoint; the controller dispatches by topic.
+  [[webhooks.subscriptions]]
+  topics = [ "app/uninstalled", "app/scopes_update" ]
+  uri = "https://REPLACE-WITH-BACKEND-TUNNEL.example.com/api/webhooks"
+
+  [[webhooks.subscriptions]]
+  topics = [
+    "locations/create",
+    "locations/update",
+    "locations/delete",
+    "locations/activate",
+    "locations/deactivate",
+  ]
+  uri = "https://REPLACE-WITH-BACKEND-TUNNEL.example.com/api/webhooks"
+
+  # Mandatory privacy/compliance webhooks (required for App Store review).
+  [[webhooks.subscriptions]]
+  compliance_topics = [ "customers/data_request", "customers/redact", "shop/redact" ]
+  uri = "https://REPLACE-WITH-BACKEND-TUNNEL.example.com/api/webhooks"
+
+[pos]
+embedded = false
+
+[build]
+include_config_on_deploy = true
+automatically_update_urls_on_dev = true

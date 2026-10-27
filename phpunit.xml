@@ -29,7 +29,7 @@
         <env name="DB_DATABASE" value="nexora_test"/>
         <env name="SHOPIFY_API_KEY" value="test-api-key"/>
         <env name="SHOPIFY_API_SECRET" value="test-api-secret-0123456789abcdef0123"/>
-        <env name="SHOPIFY_API_VERSION" value="2026-10"/>
+        <env name="SHOPIFY_API_VERSION" value="2027-01"/>
         <env name="FRONTEND_URL" value="https://nexora-frontend.test"/>
         <env name="DB_URL" value=""/>
         <env name="MAIL_MAILER" value="array"/>
