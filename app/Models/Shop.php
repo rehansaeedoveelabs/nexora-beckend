@@ -4,6 +4,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 
 class Shop extends Model
 {
@@ -45,6 +46,16 @@ class Shop extends Model
     public function locations(): HasMany
     {
         return $this->hasMany(Location::class);
+    }
+
+    public function routingConfig(): HasOne
+    {
+        return $this->hasOne(RoutingConfig::class);
+    }
+
+    public function isPlus(): bool
+    {
+        return $this->plan_name === 'plus';
     }
 
     public function isInstalled(): bool

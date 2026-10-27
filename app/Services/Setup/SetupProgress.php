@@ -55,9 +55,11 @@ class SetupProgress
                 'key' => 'routing_rules',
                 'title' => 'Decide where orders ship from',
                 'description' => 'Rank your locations and add rules like "ship fragile items only from warehouses". Test them with the order simulator before going live.',
-                'status' => self::UPCOMING,
-                'detail' => 'Available in the next release',
-                'action' => null,
+                'status' => $shop->routingConfig()->exists() ? self::COMPLETE : self::INCOMPLETE,
+                'detail' => $shop->routingConfig()->exists()
+                    ? 'Routing saved. You can change it any time.'
+                    : 'Not set up yet. Nexora starts with warehouses first, then stores.',
+                'action' => ['label' => 'Set up routing', 'url' => '/routing'],
             ],
         ];
 

@@ -4,45 +4,17 @@ namespace Tests\Browser;
 
 use App\Models\Location;
 use App\Models\Shop;
-use Facebook\WebDriver\WebDriverBy;
 use Illuminate\Foundation\Testing\DatabaseMigrations;
 use Laravel\Dusk\Browser;
-use PHPUnit\Framework\Assert;
+use Tests\Browser\Concerns\DrivesPolaris;
 use Tests\DuskTestCase;
 
 /**
  * End-to-end: real frontend (React + Polaris) + real API + real DB, driven through Chrome.
- *
- * Polaris renders headings/labels inside shadow DOM and React sets their props as element
- * properties, so the helpers below read text through shadow roots and find elements by property.
  */
 class LocationsFlowTest extends DuskTestCase
 {
-    use DatabaseMigrations;
-
-    private const WAIT = 15;
-
-    /**
-     * Visible text of a node: light DOM, open shadow roots, plus the text Polaris renders from
-     * component props (heading, label, error, details), which may live in closed shadow roots.
-     */
-    private const DEEP_TEXT = <<<'JS'
-        const PROPS = ['heading', 'label', 'error', 'details'];
-        const walk = (node) => {
-            if (node.tagName === 'STYLE' || node.tagName === 'SCRIPT') return ' ';
-            let text = node.shadowRoot ? walk(node.shadowRoot) : '';
-            if (node.tagName?.startsWith('S-')) {
-                for (const prop of PROPS) if (typeof node[prop] === 'string' && node[prop]) text += ` ${node[prop]} `;
-            }
-            for (const child of node.childNodes) {
-                // Adjacent text nodes join as-is (React splits `${n} selected` into two nodes); elements get a separator.
-                if (child.nodeType === Node.TEXT_NODE) text += child.textContent;
-                else if (child.nodeType === Node.ELEMENT_NODE) text += ` ${walk(child)} `;
-            }
-            return text;
-        };
-        const deepText = (node) => walk(node).replace(/\s+/g, ' ');
-    JS;
+    use DatabaseMigrations, DrivesPolaris;
 
     protected function setUp(): void
     {
@@ -88,7 +60,7 @@ class LocationsFlowTest extends DuskTestCase
 
             $this->waitForText($browser, 'Get Nexora ready');
             $this->assertSees($browser, [
-                '1 of 2 steps done',
+                '1 of 3 steps done',
                 '2 locations still need a type',
                 'Coming soon',
                 'Need a type',
@@ -130,8 +102,9 @@ class LocationsFlowTest extends DuskTestCase
             $this->waitUntilMissingText($browser, 'needs a type');
 
             $browser->visit('/');
-            $this->waitForText($browser, 'Your locations are ready');
-            $this->assertDoesNotSee($browser, 'Get Nexora ready');
+            $this->waitForText($browser, '2 of 3 steps done');
+            $this->assertSees($browser, ['All active locations have a type', 'Set up routing']);
+            $this->assertDoesNotSee($browser, 'still need a type');
         });
 
         $this->assertSame('warehouse', Location::where('name', 'Lahore warehouse')->value('type'));
@@ -248,99 +221,5 @@ class LocationsFlowTest extends DuskTestCase
             $this->waitForText($browser, 'Page not found');
             $this->assertSees($browser, ['Go to Home']);
         });
-    }
-
-    // ---------------------------------------------------------------- helpers
-
-    private function pageText(Browser $browser): string
-    {
-        return (string) $browser->script(self::DEEP_TEXT.' return deepText(document.body);')[0];
-    }
-
-    private function waitForText(Browser $browser, string $text): void
-    {
-        $browser->waitUsing(self::WAIT, 100, fn () => str_contains($this->pageText($browser), $text), "Waited for text: {$text}");
-    }
-
-    private function waitUntilMissingText(Browser $browser, string $text): void
-    {
-        $browser->waitUsing(self::WAIT, 100, fn () => ! str_contains($this->pageText($browser), $text), "Waited for text to disappear: {$text}");
-    }
-
-    private function assertSees(Browser $browser, array $texts): void
-    {
-        $page = $this->pageText($browser);
-        foreach ($texts as $text) {
-            Assert::assertStringContainsString($text, $page);
-        }
-    }
-
-    private function assertDoesNotSee(Browser $browser, string $text): void
-    {
-        Assert::assertStringNotContainsString($text, $this->pageText($browser));
-    }
-
-    /** Polaris fields expose `value` + native events; drive them the way a user's input would. */
-    private function choose(Browser $browser, string $tag, string $label, string $value): void
-    {
-        $this->markByProperty($browser, $tag, 'label', $label);
-        $browser->script(sprintf(<<<'JS'
-            const el = document.querySelector('[data-e2e-target]');
-            el.value = %s;
-            el.dispatchEvent(new Event('change', { bubbles: true }));
-        JS, json_encode($value)));
-    }
-
-    private function tick(Browser $browser, string $label): void
-    {
-        $this->markByProperty($browser, 's-checkbox', 'accessibilityLabel', $label);
-        $browser->script(<<<'JS'
-            const el = document.querySelector('[data-e2e-target]');
-            el.checked = true;
-            el.dispatchEvent(new Event('change', { bubbles: true }));
-        JS);
-    }
-
-    private function clickButton(Browser $browser, string $text): void
-    {
-        $browser->script(sprintf(<<<'JS'
-            [...document.querySelectorAll('s-button')].find((b) => b.textContent.trim() === %s).click();
-        JS, json_encode($text)));
-    }
-
-    /**
-     * Opens the edit modal with a real WebDriver click on the button inside <s-button>'s shadow DOM
-     * (the host element has zero size), so Polaris handles commandFor/--show exactly as for a user.
-     */
-    private function openEditModal(Browser $browser, string $locationName): void
-    {
-        $this->markByProperty($browser, 's-button', 'accessibilityLabel', "Edit limits and tags for {$locationName}");
-
-        // Polaris documents a `show` event on s-modal; record it to know the modal really opened.
-        $browser->script(<<<'JS'
-            window.__modalShown = false;
-            document.getElementById('nx-location-modal').addEventListener('show', () => { window.__modalShown = true; }, { once: true });
-        JS);
-
-        $button = $browser->element('[data-e2e-target]')
-            ->getShadowRoot()
-            ->findElement(WebDriverBy::cssSelector('button'));
-
-        // Pointer action (move + press): ChromeDriver's element click wrongly reports shadow-DOM
-        // buttons as "intercepted" by their own host element.
-        $browser->driver->action()->moveToElement($button)->click()->perform();
-
-        $browser->waitUsing(self::WAIT, 100, fn () => (bool) $browser->script('return window.__modalShown === true;')[0], 'Waited for the edit modal to open');
-    }
-
-    /** Tag the single element whose JS property matches, so WebDriver can target it. */
-    private function markByProperty(Browser $browser, string $tag, string $property, string $value): void
-    {
-        $browser->waitUsing(self::WAIT, 100, fn () => (bool) $browser->script(sprintf(<<<'JS'
-            document.querySelectorAll('[data-e2e-target]').forEach((el) => el.removeAttribute('data-e2e-target'));
-            const el = [...document.querySelectorAll(%s)].find((e) => e[%s] === %s);
-            if (el) el.setAttribute('data-e2e-target', '');
-            return !!el;
-        JS, json_encode($tag), json_encode($property), json_encode($value)))[0], "Waited for {$tag} with {$property}={$value}");
     }
 }

@@ -1,0 +1,1013 @@
+{
+    "_about": "Golden routing cases (compiled config v1 + scenario -> expected). PHPUnit (RoutingEngineTest) asserts everything. `ranking` and per-location rule/capacity reasons are NEXORA LOGIC that the Rust Functions must also match (Phase 2b adds explicit `allowed_by_line` expectations for cargo test). `outcome` and `shipments` model Shopify's own stock-based choice and are a PHP-side approximation only. Case-insensitive tag matching ('Fragile' vs 'fragile') is UNVERIFIED against Shopify's hasAnyTag; confirm on a dev store before writing Rust. Change expectations only on purpose.",
+    "cases": [
+        {
+            "name": "best-ranked location that has everything wins",
+            "config": {
+                "version": 1,
+                "ranking": [
+                    "L:wh",
+                    "L:store"
+                ],
+                "prefer_local": null,
+                "no_split": false,
+                "constraints": []
+            },
+            "scenario": {
+                "lines": [
+                    {
+                        "id": "1",
+                        "title": "Mug",
+                        "quantity": 2,
+                        "tags": []
+                    }
+                ],
+                "destination": {
+                    "country_code": "US",
+                    "province_code": "MN"
+                },
+                "locations": [
+                    {
+                        "id": "L:store",
+                        "name": "Shop location",
+                        "country_code": "US",
+                        "province_code": "MN"
+                    },
+                    {
+                        "id": "L:wh",
+                        "name": "Lahore warehouse",
+                        "country_code": "PK",
+                        "province_code": "PB"
+                    }
+                ],
+                "stock": {
+                    "L:wh": {
+                        "1": 5
+                    },
+                    "L:store": {
+                        "1": 5
+                    }
+                }
+            },
+            "expected": {
+                "outcome": "single",
+                "shipments": [
+                    {
+                        "location": "L:wh",
+                        "lines": [
+                            "1"
+                        ]
+                    }
+                ],
+                "ranking": [
+                    "L:wh",
+                    "L:store"
+                ],
+                "reason_codes": [
+                    "single_location"
+                ],
+                "eligible_by_line": {
+                    "1": [
+                        "L:wh",
+                        "L:store"
+                    ]
+                }
+            }
+        },
+        {
+            "name": "out-of-stock top location is skipped",
+            "config": {
+                "version": 1,
+                "ranking": [
+                    "L:wh",
+                    "L:store"
+                ],
+                "prefer_local": null,
+                "no_split": false,
+                "constraints": []
+            },
+            "scenario": {
+                "lines": [
+                    {
+                        "id": "1",
+                        "title": "Mug",
+                        "quantity": 3,
+                        "tags": []
+                    }
+                ],
+                "destination": {
+                    "country_code": "US"
+                },
+                "locations": [
+                    {
+                        "id": "L:wh",
+                        "name": "Warehouse"
+                    },
+                    {
+                        "id": "L:store",
+                        "name": "Store"
+                    }
+                ],
+                "stock": {
+                    "L:wh": {
+                        "1": 2
+                    },
+                    "L:store": {
+                        "1": 3
+                    }
+                }
+            },
+            "expected": {
+                "outcome": "single",
+                "shipments": [
+                    {
+                        "location": "L:store",
+                        "lines": [
+                            "1"
+                        ]
+                    }
+                ],
+                "ranking": [
+                    "L:wh",
+                    "L:store"
+                ],
+                "reason_codes": [
+                    "single_location"
+                ],
+                "location_reason_codes": {
+                    "L:wh": [
+                        "insufficient_stock"
+                    ],
+                    "L:store": []
+                },
+                "eligible_by_line": {
+                    "1": [
+                        "L:wh",
+                        "L:store"
+                    ]
+                }
+            }
+        },
+        {
+            "name": "split across the fewest locations when nobody has everything",
+            "config": {
+                "version": 1,
+                "ranking": [
+                    "A",
+                    "B",
+                    "C"
+                ],
+                "prefer_local": null,
+                "no_split": false,
+                "constraints": []
+            },
+            "scenario": {
+                "lines": [
+                    {
+                        "id": "1",
+                        "title": "Mug",
+                        "quantity": 1,
+                        "tags": []
+                    },
+                    {
+                        "id": "2",
+                        "title": "Plate",
+                        "quantity": 1,
+                        "tags": []
+                    },
+                    {
+                        "id": "3",
+                        "title": "Bowl",
+                        "quantity": 1,
+                        "tags": []
+                    }
+                ],
+                "destination": {
+                    "country_code": "US"
+                },
+                "locations": [
+                    {
+                        "id": "A",
+                        "name": "A"
+                    },
+                    {
+                        "id": "B",
+                        "name": "B"
+                    },
+                    {
+                        "id": "C",
+                        "name": "C"
+                    }
+                ],
+                "stock": {
+                    "A": {
+                        "1": 1
+                    },
+                    "B": {
+                        "2": 1,
+                        "3": 1
+                    },
+                    "C": {
+                        "1": 1,
+                        "2": 1,
+                        "3": 0
+                    }
+                }
+            },
+            "expected": {
+                "outcome": "split",
+                "shipments": [
+                    {
+                        "location": "A",
+                        "lines": [
+                            "1"
+                        ]
+                    },
+                    {
+                        "location": "B",
+                        "lines": [
+                            "2",
+                            "3"
+                        ]
+                    }
+                ],
+                "ranking": [
+                    "A",
+                    "B",
+                    "C"
+                ],
+                "reason_codes": [
+                    "split"
+                ],
+                "eligible_by_line": {
+                    "1": [
+                        "A",
+                        "B",
+                        "C"
+                    ],
+                    "2": [
+                        "A",
+                        "B",
+                        "C"
+                    ],
+                    "3": [
+                        "A",
+                        "B",
+                        "C"
+                    ]
+                }
+            }
+        },
+        {
+            "name": "keep-together blocks an order no single location can ship",
+            "config": {
+                "version": 1,
+                "ranking": [
+                    "A",
+                    "B"
+                ],
+                "prefer_local": null,
+                "no_split": true,
+                "constraints": []
+            },
+            "scenario": {
+                "lines": [
+                    {
+                        "id": "1",
+                        "title": "Mug",
+                        "quantity": 1,
+                        "tags": []
+                    },
+                    {
+                        "id": "2",
+                        "title": "Plate",
+                        "quantity": 1,
+                        "tags": []
+                    }
+                ],
+                "destination": {
+                    "country_code": "US"
+                },
+                "locations": [
+                    {
+                        "id": "A",
+                        "name": "A"
+                    },
+                    {
+                        "id": "B",
+                        "name": "B"
+                    }
+                ],
+                "stock": {
+                    "A": {
+                        "1": 1
+                    },
+                    "B": {
+                        "2": 1
+                    }
+                }
+            },
+            "expected": {
+                "outcome": "blocked",
+                "shipments": [],
+                "ranking": [
+                    "A",
+                    "B"
+                ],
+                "reason_codes": [
+                    "no_split_unfulfillable"
+                ],
+                "eligible_by_line": {
+                    "1": [
+                        "A",
+                        "B"
+                    ],
+                    "2": [
+                        "A",
+                        "B"
+                    ]
+                }
+            }
+        },
+        {
+            "name": "keep-together still ships when one location has everything",
+            "config": {
+                "version": 1,
+                "ranking": [
+                    "A",
+                    "B"
+                ],
+                "prefer_local": null,
+                "no_split": true,
+                "constraints": []
+            },
+            "scenario": {
+                "lines": [
+                    {
+                        "id": "1",
+                        "title": "Mug",
+                        "quantity": 1,
+                        "tags": []
+                    },
+                    {
+                        "id": "2",
+                        "title": "Plate",
+                        "quantity": 1,
+                        "tags": []
+                    }
+                ],
+                "destination": {
+                    "country_code": "US"
+                },
+                "locations": [
+                    {
+                        "id": "A",
+                        "name": "A"
+                    },
+                    {
+                        "id": "B",
+                        "name": "B"
+                    }
+                ],
+                "stock": {
+                    "A": {
+                        "1": 1
+                    },
+                    "B": {
+                        "1": 1,
+                        "2": 1
+                    }
+                }
+            },
+            "expected": {
+                "outcome": "single",
+                "shipments": [
+                    {
+                        "location": "B",
+                        "lines": [
+                            "1",
+                            "2"
+                        ]
+                    }
+                ],
+                "ranking": [
+                    "A",
+                    "B"
+                ],
+                "reason_codes": [
+                    "single_location"
+                ],
+                "eligible_by_line": {
+                    "1": [
+                        "A",
+                        "B"
+                    ],
+                    "2": [
+                        "A",
+                        "B"
+                    ]
+                }
+            }
+        },
+        {
+            "name": "only-from rule sends fragile items to the warehouse even though the store ranks higher",
+            "config": {
+                "version": 1,
+                "ranking": [
+                    "S",
+                    "W"
+                ],
+                "prefer_local": null,
+                "no_split": false,
+                "constraints": [
+                    {
+                        "rule_id": "r1",
+                        "tags_any": [
+                            "fragile"
+                        ],
+                        "allowed_location_ids": [
+                            "W"
+                        ]
+                    }
+                ]
+            },
+            "scenario": {
+                "lines": [
+                    {
+                        "id": "1",
+                        "title": "Vase",
+                        "quantity": 1,
+                        "tags": [
+                            "Fragile"
+                        ]
+                    }
+                ],
+                "destination": {
+                    "country_code": "US"
+                },
+                "locations": [
+                    {
+                        "id": "S",
+                        "name": "Store"
+                    },
+                    {
+                        "id": "W",
+                        "name": "Warehouse"
+                    }
+                ],
+                "stock": {
+                    "S": {
+                        "1": 4
+                    },
+                    "W": {
+                        "1": 4
+                    }
+                }
+            },
+            "expected": {
+                "outcome": "single",
+                "shipments": [
+                    {
+                        "location": "W",
+                        "lines": [
+                            "1"
+                        ]
+                    }
+                ],
+                "ranking": [
+                    "S",
+                    "W"
+                ],
+                "reason_codes": [
+                    "single_location"
+                ],
+                "location_reason_codes": {
+                    "S": [
+                        "rule_excludes"
+                    ],
+                    "W": []
+                },
+                "eligible_by_line": {
+                    "1": [
+                        "W"
+                    ]
+                }
+            }
+        },
+        {
+            "name": "rule leaves no location for an item: blocked",
+            "config": {
+                "version": 1,
+                "ranking": [
+                    "S",
+                    "W"
+                ],
+                "prefer_local": null,
+                "no_split": false,
+                "constraints": [
+                    {
+                        "rule_id": "r1",
+                        "tags_any": [
+                            "fragile"
+                        ],
+                        "allowed_location_ids": [
+                            "W"
+                        ]
+                    }
+                ]
+            },
+            "scenario": {
+                "lines": [
+                    {
+                        "id": "1",
+                        "title": "Vase",
+                        "quantity": 1,
+                        "tags": [
+                            "fragile"
+                        ]
+                    },
+                    {
+                        "id": "2",
+                        "title": "Mug",
+                        "quantity": 1,
+                        "tags": []
+                    }
+                ],
+                "destination": {
+                    "country_code": "US"
+                },
+                "locations": [
+                    {
+                        "id": "S",
+                        "name": "Store"
+                    },
+                    {
+                        "id": "W",
+                        "name": "Warehouse"
+                    }
+                ],
+                "stock": {
+                    "S": {
+                        "1": 4,
+                        "2": 4
+                    },
+                    "W": {
+                        "1": 0,
+                        "2": 1
+                    }
+                }
+            },
+            "expected": {
+                "outcome": "blocked",
+                "shipments": [],
+                "ranking": [
+                    "S",
+                    "W"
+                ],
+                "reason_codes": [
+                    "line_unfulfillable"
+                ],
+                "eligible_by_line": {
+                    "1": [
+                        "W"
+                    ],
+                    "2": [
+                        "S",
+                        "W"
+                    ]
+                }
+            }
+        },
+        {
+            "name": "untagged items ignore product rules",
+            "config": {
+                "version": 1,
+                "ranking": [
+                    "S",
+                    "W"
+                ],
+                "prefer_local": null,
+                "no_split": false,
+                "constraints": [
+                    {
+                        "rule_id": "r1",
+                        "tags_any": [
+                            "fragile"
+                        ],
+                        "allowed_location_ids": [
+                            "W"
+                        ]
+                    }
+                ]
+            },
+            "scenario": {
+                "lines": [
+                    {
+                        "id": "1",
+                        "title": "Mug",
+                        "quantity": 1,
+                        "tags": [
+                            "kitchen"
+                        ]
+                    }
+                ],
+                "destination": {
+                    "country_code": "US"
+                },
+                "locations": [
+                    {
+                        "id": "S",
+                        "name": "Store"
+                    },
+                    {
+                        "id": "W",
+                        "name": "Warehouse"
+                    }
+                ],
+                "stock": {
+                    "S": {
+                        "1": 1
+                    },
+                    "W": {
+                        "1": 1
+                    }
+                }
+            },
+            "expected": {
+                "outcome": "single",
+                "shipments": [
+                    {
+                        "location": "S",
+                        "lines": [
+                            "1"
+                        ]
+                    }
+                ],
+                "ranking": [
+                    "S",
+                    "W"
+                ],
+                "reason_codes": [
+                    "single_location"
+                ],
+                "eligible_by_line": {
+                    "1": [
+                        "S",
+                        "W"
+                    ]
+                }
+            }
+        },
+        {
+            "name": "prefer same country moves local locations to the front",
+            "config": {
+                "version": 1,
+                "ranking": [
+                    "CA",
+                    "US"
+                ],
+                "prefer_local": "country",
+                "no_split": false,
+                "constraints": []
+            },
+            "scenario": {
+                "lines": [
+                    {
+                        "id": "1",
+                        "title": "Mug",
+                        "quantity": 1,
+                        "tags": []
+                    }
+                ],
+                "destination": {
+                    "country_code": "us",
+                    "province_code": "MN"
+                },
+                "locations": [
+                    {
+                        "id": "CA",
+                        "name": "Toronto",
+                        "country_code": "CA",
+                        "province_code": "ON"
+                    },
+                    {
+                        "id": "US",
+                        "name": "Hugo",
+                        "country_code": "US",
+                        "province_code": "MN"
+                    }
+                ],
+                "stock": {
+                    "CA": {
+                        "1": 1
+                    },
+                    "US": {
+                        "1": 1
+                    }
+                }
+            },
+            "expected": {
+                "outcome": "single",
+                "shipments": [
+                    {
+                        "location": "US",
+                        "lines": [
+                            "1"
+                        ]
+                    }
+                ],
+                "ranking": [
+                    "US",
+                    "CA"
+                ],
+                "reason_codes": [
+                    "single_location"
+                ],
+                "location_reason_codes": {
+                    "US": [
+                        "local_match"
+                    ],
+                    "CA": [
+                        "not_local"
+                    ]
+                },
+                "eligible_by_line": {
+                    "1": [
+                        "US",
+                        "CA"
+                    ]
+                }
+            }
+        },
+        {
+            "name": "prefer same province keeps ranking order inside each group",
+            "config": {
+                "version": 1,
+                "ranking": [
+                    "NY",
+                    "MN2",
+                    "MN1"
+                ],
+                "prefer_local": "province",
+                "no_split": false,
+                "constraints": []
+            },
+            "scenario": {
+                "lines": [
+                    {
+                        "id": "1",
+                        "title": "Mug",
+                        "quantity": 1,
+                        "tags": []
+                    }
+                ],
+                "destination": {
+                    "country_code": "US",
+                    "province_code": "MN"
+                },
+                "locations": [
+                    {
+                        "id": "NY",
+                        "name": "New York",
+                        "country_code": "US",
+                        "province_code": "NY"
+                    },
+                    {
+                        "id": "MN1",
+                        "name": "Minneapolis",
+                        "country_code": "US",
+                        "province_code": "MN"
+                    },
+                    {
+                        "id": "MN2",
+                        "name": "Hugo",
+                        "country_code": "US",
+                        "province_code": "MN"
+                    }
+                ],
+                "stock": {
+                    "NY": {
+                        "1": 1
+                    },
+                    "MN1": {
+                        "1": 1
+                    },
+                    "MN2": {
+                        "1": 1
+                    }
+                }
+            },
+            "expected": {
+                "outcome": "single",
+                "shipments": [
+                    {
+                        "location": "MN2",
+                        "lines": [
+                            "1"
+                        ]
+                    }
+                ],
+                "ranking": [
+                    "MN2",
+                    "MN1",
+                    "NY"
+                ],
+                "reason_codes": [
+                    "single_location"
+                ],
+                "eligible_by_line": {
+                    "1": [
+                        "MN2",
+                        "MN1",
+                        "NY"
+                    ]
+                }
+            }
+        },
+        {
+            "name": "location at capacity is skipped",
+            "config": {
+                "version": 1,
+                "ranking": [
+                    "A",
+                    "B"
+                ],
+                "prefer_local": null,
+                "no_split": false,
+                "constraints": []
+            },
+            "scenario": {
+                "lines": [
+                    {
+                        "id": "1",
+                        "title": "Mug",
+                        "quantity": 1,
+                        "tags": []
+                    }
+                ],
+                "destination": {
+                    "country_code": "US"
+                },
+                "locations": [
+                    {
+                        "id": "A",
+                        "name": "A",
+                        "at_capacity": true
+                    },
+                    {
+                        "id": "B",
+                        "name": "B"
+                    }
+                ],
+                "stock": {
+                    "A": {
+                        "1": 9
+                    },
+                    "B": {
+                        "1": 9
+                    }
+                }
+            },
+            "expected": {
+                "outcome": "single",
+                "shipments": [
+                    {
+                        "location": "B",
+                        "lines": [
+                            "1"
+                        ]
+                    }
+                ],
+                "ranking": [
+                    "A",
+                    "B"
+                ],
+                "reason_codes": [
+                    "single_location"
+                ],
+                "location_reason_codes": {
+                    "A": [
+                        "at_capacity"
+                    ],
+                    "B": []
+                },
+                "eligible_by_line": {
+                    "1": [
+                        "A",
+                        "B"
+                    ]
+                }
+            }
+        },
+        {
+            "name": "locations missing from the ranking go last, by name",
+            "config": {
+                "version": 1,
+                "ranking": [
+                    "Z"
+                ],
+                "prefer_local": null,
+                "no_split": false,
+                "constraints": []
+            },
+            "scenario": {
+                "lines": [
+                    {
+                        "id": "1",
+                        "title": "Mug",
+                        "quantity": 1,
+                        "tags": []
+                    }
+                ],
+                "destination": {
+                    "country_code": "US"
+                },
+                "locations": [
+                    {
+                        "id": "B",
+                        "name": "Bravo"
+                    },
+                    {
+                        "id": "Z",
+                        "name": "Zulu"
+                    },
+                    {
+                        "id": "A",
+                        "name": "Alpha"
+                    }
+                ],
+                "stock": {
+                    "Z": {
+                        "1": 0
+                    },
+                    "A": {
+                        "1": 1
+                    },
+                    "B": {
+                        "1": 1
+                    }
+                }
+            },
+            "expected": {
+                "outcome": "single",
+                "shipments": [
+                    {
+                        "location": "A",
+                        "lines": [
+                            "1"
+                        ]
+                    }
+                ],
+                "ranking": [
+                    "Z",
+                    "A",
+                    "B"
+                ],
+                "reason_codes": [
+                    "single_location"
+                ],
+                "eligible_by_line": {
+                    "1": [
+                        "Z",
+                        "A",
+                        "B"
+                    ]
+                }
+            }
+        },
+        {
+            "name": "empty cart is blocked",
+            "config": {
+                "version": 1,
+                "ranking": [],
+                "prefer_local": null,
+                "no_split": false,
+                "constraints": []
+            },
+            "scenario": {
+                "lines": [],
+                "destination": {
+                    "country_code": "US"
+                },
+                "locations": [
+                    {
+                        "id": "A",
+                        "name": "A"
+                    }
+                ],
+                "stock": []
+            },
+            "expected": {
+                "outcome": "blocked",
+                "shipments": [],
+                "ranking": [
+                    "A"
+                ],
+                "reason_codes": [
+                    "empty_cart"
+                ],
+                "eligible_by_line": {}
+            }
+        }
+    ]
+}

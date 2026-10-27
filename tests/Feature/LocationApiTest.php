@@ -165,13 +165,24 @@ class LocationApiTest extends TestCase
             ->assertJsonPath('data.steps.1.status', 'incomplete')
             ->assertJsonPath('data.steps.1.detail', '2 locations still need a type')
             ->assertJsonPath('data.steps.2.status', 'upcoming')
+            ->assertJsonPath('data.steps.3.status', 'incomplete')
             ->assertJsonPath('data.completed', 1)
-            ->assertJsonPath('data.total', 2);
+            ->assertJsonPath('data.total', 3);
 
         $this->shop->locations()->untyped()->update(['type' => 'store']);
 
         $this->apiAs($this->shop)->getJson('/api/setup')
             ->assertJsonPath('data.steps.1.status', 'complete')
+            ->assertJsonPath('data.is_complete', false);
+
+        // Saving routing completes the guide.
+        $this->apiAs($this->shop)->putJson('/api/routing', [
+            'priority' => [], 'prefer_local' => null, 'no_split' => false, 'rules' => [],
+        ])->assertOk();
+
+        $this->apiAs($this->shop)->getJson('/api/setup')
+            ->assertJsonPath('data.steps.3.status', 'complete')
+            ->assertJsonPath('data.completed', 3)
             ->assertJsonPath('data.is_complete', true);
     }
 
@@ -189,6 +200,16 @@ class LocationApiTest extends TestCase
             'HTTP_ACCESS_CONTROL_REQUEST_METHOD' => 'PATCH',
             'HTTP_ACCESS_CONTROL_REQUEST_HEADERS' => 'authorization,content-type',
         ])->assertHeader('Access-Control-Allow-Origin', 'https://nexora-frontend.test');
+
+        // Every verb the frontend uses must pass preflight (PUT /api/routing once didn't).
+        foreach (['GET', 'POST', 'PUT', 'PATCH'] as $method) {
+            $allowed = $this->call('OPTIONS', '/api/routing', [], [], [], [
+                'HTTP_ORIGIN' => 'https://nexora-frontend.test',
+                'HTTP_ACCESS_CONTROL_REQUEST_METHOD' => $method,
+                'HTTP_ACCESS_CONTROL_REQUEST_HEADERS' => 'authorization,content-type',
+            ])->headers->get('Access-Control-Allow-Methods');
+            $this->assertStringContainsString($method, (string) $allowed, "{$method} must pass CORS preflight");
+        }
 
         $evil = $this->call('OPTIONS', '/api/locations', [], [], [], [
             'HTTP_ORIGIN' => 'https://evil.example.com',

@@ -55,6 +55,8 @@ abstract class DuskTestCase extends BaseTestCase
             }
         }
 
+        self::buildFrontend($env['NEXORA_FRONTEND_ROOT'], $env['NEXORA_E2E_API']);
+
         self::$servers = [
             self::serve(['php', '-S', '127.0.0.1:'.static::API_PORT, '-t', 'public', 'public/index.php'], $backend, $env, static::API_PORT),
             self::serve(['php', '-S', '127.0.0.1:'.static::FRONTEND_PORT, 'tests/Browser/Support/frontend-router.php'], $backend, $env, static::FRONTEND_PORT),
@@ -68,6 +70,31 @@ abstract class DuskTestCase extends BaseTestCase
             $server->stop(1);
         }
         self::$servers = [];
+    }
+
+    private static bool $frontendBuilt = false;
+
+    /**
+     * Build the real frontend once per test run, pointed at the E2E API, into build-e2e/
+     * (never touches a real build/). Node is only used here, in the frontend folder.
+     */
+    private static function buildFrontend(string $frontendRoot, string $apiUrl): void
+    {
+        if (self::$frontendBuilt) {
+            return;
+        }
+
+        $build = new Process(['npm', 'run', 'build'], $frontendRoot, [
+            'NEXORA_BUILD_DIR' => 'build-e2e',
+            'VITE_NEXORA_API_URL' => $apiUrl,
+        ], timeout: 180);
+        $build->run();
+
+        if (! $build->isSuccessful()) {
+            throw new RuntimeException("Frontend build failed:\n".$build->getErrorOutput().$build->getOutput());
+        }
+
+        self::$frontendBuilt = true;
     }
 
     private static function serve(array $command, string $cwd, array $env, int $port): Process

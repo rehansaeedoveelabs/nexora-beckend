@@ -24,6 +24,7 @@ class Location extends Model
         'address1',
         'city',
         'province',
+        'province_code',
         'country_code',
         'zip',
         'formatted_address',

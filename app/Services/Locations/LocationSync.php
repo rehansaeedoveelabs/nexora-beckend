@@ -17,7 +17,7 @@ class LocationSync
         name
         isActive
         fulfillsOnlineOrders
-        address { address1 city province countryCode zip formatted }
+        address { address1 city province provinceCode countryCode zip formatted }
         localPickupSettingsV2 { pickupTime }
         fulfillmentService { serviceName }
     GQL;
@@ -90,6 +90,7 @@ class LocationSync
             'address1' => $address['address1'] ?? null,
             'city' => $address['city'] ?? null,
             'province' => $address['province'] ?? null,
+            'province_code' => $address['provinceCode'] ?? null,
             'country_code' => $address['countryCode'] ?? null,
             'zip' => $address['zip'] ?? null,
             'formatted_address' => mb_substr(implode(', ', $address['formatted'] ?? []), 0, 500) ?: null,

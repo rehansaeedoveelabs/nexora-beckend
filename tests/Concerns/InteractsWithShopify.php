@@ -77,6 +77,7 @@ trait InteractsWithShopify
                 'address1' => '123 Main St',
                 'city' => 'Toronto',
                 'province' => 'Ontario',
+                'provinceCode' => 'ON',
                 'countryCode' => 'CA',
                 'zip' => 'A1A 1A1',
                 'formatted' => ['123 Main St', 'Toronto ON A1A 1A1', 'Canada'],
