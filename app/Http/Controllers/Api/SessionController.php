@@ -15,7 +15,9 @@ class SessionController extends Controller
      */
     public function show(Request $request, SetupProgress $setup): JsonResponse
     {
-        $shop = $this->shop($request);
+        // Refresh: on the first open the bootstrap job may have just run inline (sync queue) and
+        // updated the shop after the middleware resolved it, so the in-memory model can be stale.
+        $shop = $this->shop($request)->fresh();
 
         return response()->json([
             'data' => [

@@ -64,7 +64,7 @@ class LocationsFlowTest extends DuskTestCase
                 '2 locations still need a type',
                 'Coming soon',
                 'Need a type',
-                'Active locations Nexora can’t route to yet',
+                'Set a type so Nexora can route here.',
                 'How Nexora works',
             ]);
         });
