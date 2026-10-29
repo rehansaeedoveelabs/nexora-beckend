@@ -1,0 +1,22 @@
+api_version = "2026-07"
+
+[[extensions]]
+name = "t:name"
+handle = "nexora-fulfillment-constraints"
+type = "function"
+uid = "d2d220a1-71dd-5ce7-226d-883ac62147741d3e6360"
+description = "t:description"
+
+  [[extensions.targeting]]
+  target = "cart.fulfillment-constraints.generate.run"
+  input_query = "src/cart_fulfillment_constraints_generate_run.graphql"
+  export = "cart_fulfillment_constraints_generate_run"
+
+  [extensions.build]
+  command = "cargo build --target=wasm32-unknown-unknown --release"
+  path = "target/wasm32-unknown-unknown/release/nexora-fulfillment-constraints.wasm"
+  watch = [ "src/**/*.rs" ]
+
+  [extensions.ui.paths]
+  create = "/"
+  details = "/"
