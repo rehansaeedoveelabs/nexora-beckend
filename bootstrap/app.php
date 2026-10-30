@@ -29,6 +29,10 @@ return Application::configure(basePath: dirname(__DIR__))
                 ]);
             }
 
+            if ($e->status === 403) {
+                return response()->json(['message' => $e->getMessage()], 403);
+            }
+
             return response()->json([
                 'message' => $e->status === 422 ? $e->getMessage() : 'Shopify is not responding right now. Try again in a moment.',
                 'errors' => $e->status === 422 ? $e->errors : [],

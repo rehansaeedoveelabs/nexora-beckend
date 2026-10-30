@@ -171,6 +171,39 @@ class RoutingFlowTest extends DuskTestCase
         });
     }
 
+    public function test_full_page_builder_creates_and_persists_a_rule(): void
+    {
+        $this->browse(function (Browser $browser) {
+            $browser->visit('/routing/new');
+            $this->waitForText($browser, 'Create routing rule');
+
+            // Default target is "All warehouses", so the summary resolves to the one warehouse.
+            $this->typeInto($browser, 's-text-field', 'When an order contains products tagged', 'fragile');
+            $this->waitForText($browser, 'Products tagged “fragile” will only ship from Lahore warehouse.');
+
+            $this->clickButton($browser, 'Create rule');
+            // Redirects back to the routing page on success.
+            $this->waitForText($browser, 'Location priority');
+        });
+
+        $config = RoutingConfig::first();
+        $this->assertNotNull($config, 'The builder should persist the rule through /api/routing');
+        $this->assertSame(['fragile'], $config->settings['rules'][0]['tags']);
+        $this->assertContains('warehouse', $config->settings['rules'][0]['location_types']);
+    }
+
+    public function test_full_page_builder_requires_a_tag(): void
+    {
+        $this->browse(function (Browser $browser) {
+            $browser->visit('/routing/new');
+            $this->waitForText($browser, 'Create routing rule');
+            $this->clickButton($browser, 'Create rule');
+            $this->waitForText($browser, 'Add at least one product tag.');
+        });
+
+        $this->assertSame(0, RoutingConfig::count());
+    }
+
     public function test_rule_without_tags_shows_the_error_on_the_field(): void
     {
         $this->browse(function (Browser $browser) {

@@ -53,10 +53,10 @@ class LocationsFlowTest extends DuskTestCase
         }
     }
 
-    public function test_home_shows_a_truthful_setup_guide_and_explained_numbers(): void
+    public function test_setup_page_shows_a_truthful_setup_guide_and_explained_numbers(): void
     {
         $this->browse(function (Browser $browser) {
-            $browser->visit('/');
+            $browser->visit('/setup');
 
             $this->waitForText($browser, 'Get Nexora ready');
             $this->assertSees($browser, [
@@ -102,7 +102,7 @@ class LocationsFlowTest extends DuskTestCase
             $this->choose($browser, 's-select', 'Type for My Custom Location', 'store');
             $this->waitUntilMissingText($browser, 'needs a type');
 
-            $browser->visit('/');
+            $browser->visit('/setup');
             $this->waitForText($browser, '2 of 3 steps done');
             $this->assertSees($browser, ['All active locations have a type', 'Set up routing']);
             $this->assertDoesNotSee($browser, 'still need a type');
@@ -115,7 +115,7 @@ class LocationsFlowTest extends DuskTestCase
     public function test_setup_guide_deep_link_opens_the_filtered_fix_view(): void
     {
         $this->browse(function (Browser $browser) {
-            $browser->visit('/');
+            $browser->visit('/setup');
             $this->waitForText($browser, 'Set location types');
 
             $this->clickButton($browser, 'Set location types');

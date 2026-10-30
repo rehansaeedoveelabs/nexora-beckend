@@ -14,9 +14,13 @@ class RoutingApiTest extends TestCase
     use InteractsWithShopify, RefreshDatabase;
 
     private Shop $shop;
+
     private Location $warehouse;
+
     private Location $store;
+
     private Location $untyped;
+
     private Location $notShipping;
 
     protected function setUp(): void
@@ -88,6 +92,12 @@ class RoutingApiTest extends TestCase
         ]))->assertOk()->assertJsonPath('data.settings.rules.0.tags', ['Fragile']);
 
         $compiled = $this->shop->routingConfig()->first()->compiled;
+
+        $this->assertDatabaseHas('activity_events', [
+            'shop_id' => $this->shop->id,
+            'type' => 'routing_config_updated',
+            'subject' => 'Routing configuration',
+        ]);
 
         $this->assertSame(1, $compiled['version']);
         $this->assertSame([$this->store->shopify_id, $this->warehouse->shopify_id, $this->untyped->shopify_id], $compiled['ranking']);

@@ -6,11 +6,13 @@ use App\Http\Controllers\Controller;
 use App\Http\Resources\LocationResource;
 use App\Models\Location;
 use App\Models\Shop;
+use App\Services\Activity\ActivityLogger;
 use App\Services\Routing\ReasonFormatter;
 use App\Services\Routing\RoutingConfigCompiler;
 use App\Services\Routing\RoutingEngine;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 
@@ -19,6 +21,7 @@ class RoutingController extends Controller
     public function __construct(
         private readonly RoutingConfigCompiler $compiler,
         private readonly RoutingEngine $engine,
+        private readonly ActivityLogger $activity,
     ) {}
 
     public function show(Request $request): JsonResponse
@@ -36,11 +39,21 @@ class RoutingController extends Controller
         $settings = $this->validatedSettings($request, $shop);
         $compiled = $this->compiler->compile($shop, $settings);
 
-        $config = $shop->routingConfig()->updateOrCreate([], [
-            'settings' => $settings,
-            'compiled' => $compiled,
-            'schema_version' => RoutingConfigCompiler::SCHEMA_VERSION,
-        ]);
+        $config = DB::transaction(function () use ($shop, $settings, $compiled) {
+            $config = $shop->routingConfig()->updateOrCreate([], [
+                'settings' => $settings,
+                'compiled' => $compiled,
+                'schema_version' => RoutingConfigCompiler::SCHEMA_VERSION,
+            ]);
+            $this->activity->record(
+                $shop,
+                'routing_config_updated',
+                'Routing configuration',
+                'Saved routing rules and location priorities.',
+            );
+
+            return $config;
+        });
 
         // Phase 2b: dispatch the job that writes `compiled` to the app metafield for the Functions.
 

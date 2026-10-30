@@ -19,6 +19,8 @@ class Shop extends Model
         'refresh_token',
         'refresh_token_expires_at',
         'scopes',
+        'fulfillment_function_id',
+        'fulfillment_constraint_rule_id',
         'installed_at',
         'uninstalled_at',
         'locations_synced_at',
@@ -46,6 +48,11 @@ class Shop extends Model
     public function locations(): HasMany
     {
         return $this->hasMany(Location::class);
+    }
+
+    public function activityEvents(): HasMany
+    {
+        return $this->hasMany(ActivityEvent::class);
     }
 
     public function routingConfig(): HasOne

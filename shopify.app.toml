@@ -8,25 +8,28 @@ embedded = true
 
 # The embedded app UI (the React frontend). For local dev this is a tunnel to the Vite dev server;
 # `automatically_update_urls_on_dev` rewrites it while `shopify app dev` runs.
-application_url = "https://REPLACE-WITH-FRONTEND-TUNNEL.example.com"
+application_url = "https://kim-presence-measuring-carnival.trycloudflare.com"
 
 [access_scopes]
-# Request only what shipped features use. Phase 1 reads locations; Phase 2b adds the rest
-# (orders, inventory, fulfillment orders, constraint rules) when those features ship.
-scopes = "read_locations"
+# Requested scopes support locations, orders, inventory-aware routing and checkout constraints.
+scopes = "read_locations,read_products,read_orders,read_inventory,read_third_party_fulfillment_orders,write_merchant_managed_fulfillment_orders,write_fulfillment_constraint_rules"
 # Token exchange (managed install) — no OAuth redirect dance.
 use_legacy_install_flow = false
 
 [auth]
-redirect_urls = [ "https://REPLACE-WITH-FRONTEND-TUNNEL.example.com/api/auth" ]
+redirect_urls = [ "https://kim-presence-measuring-carnival.trycloudflare.com/api/auth" ]
 
 [webhooks]
-api_version = "2027-01"
+api_version = "2026-10"
 
   # All webhooks hit the backend's single verified endpoint; the controller dispatches by topic.
   [[webhooks.subscriptions]]
   topics = [ "app/uninstalled", "app/scopes_update" ]
-  uri = "https://REPLACE-WITH-BACKEND-TUNNEL.example.com/api/webhooks"
+  uri = "https://kim-presence-measuring-carnival.trycloudflare.com/api/webhooks"
+
+  [[webhooks.subscriptions]]
+  topics = [ "orders/create" ]
+  uri = "https://kim-presence-measuring-carnival.trycloudflare.com/api/webhooks"
 
   [[webhooks.subscriptions]]
   topics = [
@@ -36,16 +39,15 @@ api_version = "2027-01"
     "locations/activate",
     "locations/deactivate",
   ]
-  uri = "https://REPLACE-WITH-BACKEND-TUNNEL.example.com/api/webhooks"
+  uri = "https://kim-presence-measuring-carnival.trycloudflare.com/api/webhooks"
 
   # Mandatory privacy/compliance webhooks (required for App Store review).
   [[webhooks.subscriptions]]
   compliance_topics = [ "customers/data_request", "customers/redact", "shop/redact" ]
-  uri = "https://REPLACE-WITH-BACKEND-TUNNEL.example.com/api/webhooks"
+  uri = "https://kim-presence-measuring-carnival.trycloudflare.com/api/webhooks"
 
 [pos]
 embedded = false
 
 [build]
-include_config_on_deploy = true
-automatically_update_urls_on_dev = true
+automatically_update_urls_on_dev = false

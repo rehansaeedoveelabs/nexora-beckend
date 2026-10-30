@@ -7,6 +7,7 @@ use App\Models\Shop;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Sleep;
 
 /**
@@ -49,7 +50,7 @@ class AdminGraphql
                 continue;
             }
 
-            return $this->unwrap($response);
+            return $this->unwrap($shop, $response);
         }
     }
 
@@ -62,7 +63,12 @@ class AdminGraphql
         $userErrors = $data[$payloadKey]['userErrors'] ?? [];
 
         if ($userErrors !== []) {
-            throw new ShopifyApiException('Shopify rejected the change.', $userErrors, 422);
+            $messages = collect($userErrors)->pluck('message')->filter()->implode(' ');
+            $message = $messages === ''
+                ? 'Shopify rejected the change.'
+                : "Shopify rejected the change: {$messages}";
+
+            throw new ShopifyApiException($message, $userErrors, 422);
         }
 
         return $data[$payloadKey] ?? [];
@@ -83,7 +89,7 @@ class AdminGraphql
         return false;
     }
 
-    private function unwrap(Response $response): array
+    private function unwrap(Shop $shop, Response $response): array
     {
         if ($response->status() === 401) {
             throw new ShopifyApiException('Shopify rejected the access token.', status: 401);
@@ -95,7 +101,50 @@ class AdminGraphql
 
         $errors = $response->json('errors');
         if (! empty($errors)) {
-            throw new ShopifyApiException('Shopify GraphQL error.', is_array($errors) ? $errors : [$errors], $response->status());
+            $errors = is_array($errors) ? $errors : [$errors];
+            $accessDenied = collect($errors)
+                ->contains(fn (array $error) => ($error['extensions']['code'] ?? null) === 'ACCESS_DENIED');
+
+            if ($accessDenied) {
+                Log::warning('Shopify Admin GraphQL access denied', [
+                    'shop' => $shop->domain,
+                    'errors' => collect($errors)->map(fn (array $error) => [
+                        'code' => $error['extensions']['code'] ?? null,
+                        'path' => $error['path'] ?? [],
+                        'message' => $error['message'] ?? 'Access denied.',
+                    ])->all(),
+                ]);
+
+                $orderDataNotApproved = collect($errors)->contains(
+                    fn (array $error) => str_contains(
+                        strtolower($error['message'] ?? ''),
+                        'not approved to access the order object',
+                    ),
+                );
+
+                throw new ShopifyApiException(
+                    $orderDataNotApproved
+                        ? 'Shopify has not approved Nexora to access the Order object. This is app-level Protected Customer Data approval, separate from store permissions. In the Shopify Partner Dashboard, open Nexora → API access requests → Protected customer data access, request the Order data access Nexora uses, and save. For development stores, selecting and saving the data access is sufficient; public-app production access requires Shopify review.'
+                        : 'Shopify denied Nexora access to required store data. Check Nexora’s granted store permissions and app-level Protected Customer Data approval.',
+                    status: 403,
+                );
+            }
+
+            Log::warning('Shopify Admin GraphQL returned errors', [
+                'shop' => $shop->domain,
+                'http_status' => $response->status(),
+                'errors' => collect($errors)
+                    ->filter(fn ($error) => is_array($error))
+                    ->map(fn (array $error) => [
+                        'code' => $error['extensions']['code'] ?? null,
+                        'path' => $error['path'] ?? [],
+                        'message' => mb_substr($error['message'] ?? 'Unknown GraphQL error.', 0, 300),
+                    ])
+                    ->values()
+                    ->all(),
+            ]);
+
+            throw new ShopifyApiException('Shopify GraphQL error.', $errors, $response->status());
         }
 
         return $response->json('data') ?? [];

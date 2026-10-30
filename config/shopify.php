@@ -9,7 +9,7 @@ return [
     'api_secret' => env('SHOPIFY_API_SECRET'),
 
     // Pinned Admin GraphQL version. Bump deliberately, never "latest".
-    'api_version' => env('SHOPIFY_API_VERSION', '2027-01'),
+    'api_version' => env('SHOPIFY_API_VERSION', '2026-10'),
 
     // Origin of the embedded frontend (the app URL). Only origin allowed by CORS.
     'frontend_url' => env('FRONTEND_URL'),

@@ -95,6 +95,13 @@ class LocationApiTest extends TestCase
             ->assertJsonPath('data.daily_order_cap', 120)
             ->assertJsonPath('data.needs_attention', false)
             ->assertJsonPath('meta.counts.untyped', 1);
+
+        $this->assertDatabaseHas('activity_events', [
+            'shop_id' => $this->shop->id,
+            'type' => 'location_settings_updated',
+            'subject' => 'Lahore warehouse',
+            'summary' => 'Updated daily order limit, location type, supported tags.',
+        ]);
     }
 
     public function test_update_can_clear_a_cap(): void

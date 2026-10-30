@@ -22,6 +22,6 @@
         <env name="QUEUE_CONNECTION" value="sync"/>
         <env name="SHOPIFY_API_KEY" value="test-api-key"/>
         <env name="SHOPIFY_API_SECRET" value="test-api-secret-0123456789abcdef0123"/>
-        <env name="SHOPIFY_API_VERSION" value="2027-01"/>
+        <env name="SHOPIFY_API_VERSION" value="2026-10"/>
     </php>
 </phpunit>

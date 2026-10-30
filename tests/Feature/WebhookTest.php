@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Jobs\RouteNewOrder;
 use App\Jobs\SyncLocation;
 use App\Models\Shop;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -87,6 +88,53 @@ class WebhookTest extends TestCase
         $this->sendWebhook('locations/create', ['id' => 5])->assertOk();
 
         Queue::assertNothingPushed();
+    }
+
+    public function test_order_webhooks_store_only_the_order_reference_and_generic_event_summary(): void
+    {
+        $shop = $this->installedShop();
+        $payload = [
+            'id' => 12345,
+            'name' => '#1042',
+            'email' => 'customer@example.com',
+            'customer' => ['first_name' => 'Private', 'last_name' => 'Customer'],
+            'shipping_address' => ['address1' => '1 Private Street'],
+        ];
+
+        $this->sendWebhook('orders/create', $payload, webhookId: 'order-created')
+            ->assertOk()
+            ->assertJson(['status' => 'ok']);
+        $this->sendWebhook('orders/create', $payload, webhookId: 'order-created')
+            ->assertOk()
+            ->assertJson(['status' => 'duplicate']);
+        $this->sendWebhook('fulfillments/update', [
+            'order_id' => 12345,
+            'order_name' => '#1042',
+            'tracking_number' => 'private-tracking-value',
+            'tracking_company' => 'Private Carrier',
+        ], webhookId: 'fulfillment-updated')->assertOk();
+
+        $this->assertDatabaseCount('activity_events', 2);
+        $this->assertDatabaseHas('activity_events', [
+            'shop_id' => $shop->id,
+            'type' => 'shopify_order_created',
+            'subject' => '#1042',
+            'summary' => 'Shopify reported a new order.',
+        ]);
+        $this->assertDatabaseHas('activity_events', [
+            'shop_id' => $shop->id,
+            'type' => 'shopify_fulfillment_updated',
+            'subject' => '#1042',
+            'summary' => 'Shopify reported a fulfillment update.',
+        ]);
+        $stored = \DB::table('activity_events')->get()->toJson();
+        $this->assertStringNotContainsString('customer@example.com', $stored);
+        $this->assertStringNotContainsString('Private Customer', $stored);
+        $this->assertStringNotContainsString('1 Private Street', $stored);
+        $this->assertStringNotContainsString('private-tracking-value', $stored);
+        Queue::assertPushed(RouteNewOrder::class, 1);
+        Queue::assertPushed(RouteNewOrder::class, fn ($job) => $job->shopId === $shop->id
+            && $job->orderId === 12345 && $job->connection === 'database');
     }
 
     public function test_shop_redact_deletes_all_shop_data(): void

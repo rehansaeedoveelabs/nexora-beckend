@@ -6,14 +6,18 @@ use App\Http\Controllers\Controller;
 use App\Http\Resources\LocationResource;
 use App\Jobs\BootstrapShop;
 use App\Models\Location;
+use App\Services\Activity\ActivityLogger;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
 
 class LocationController extends Controller
 {
     private const TABS = ['all', 'active', 'inactive', 'untyped', ...Location::TYPES];
+
+    public function __construct(private readonly ActivityLogger $activity) {}
 
     public function index(Request $request): JsonResponse
     {
@@ -50,7 +54,8 @@ class LocationController extends Controller
     public function update(Request $request, int $id): JsonResponse
     {
         // Scoped lookup: a location id from another shop is a 404, never a leak.
-        $location = $this->shop($request)->locations()->findOrFail($id);
+        $shop = $this->shop($request);
+        $location = $shop->locations()->findOrFail($id);
 
         $validated = $request->validate([
             'type' => ['sometimes', 'nullable', Rule::in(Location::TYPES)],
@@ -64,7 +69,26 @@ class LocationController extends Controller
             $validated['tags'] = array_values(array_map('trim', $validated['tags']));
         }
 
-        $location->update($validated);
+        $changed = array_keys($validated);
+        DB::transaction(function () use ($location, $validated, $changed, $shop) {
+            $location->update($validated);
+            if ($changed !== []) {
+                $labels = [
+                    'type' => 'location type',
+                    'tags' => 'supported tags',
+                    'daily_order_cap' => 'daily order limit',
+                    'backlog_cap' => 'backlog limit',
+                ];
+                $fields = array_map(fn (string $field) => $labels[$field], $changed);
+                sort($fields);
+                $this->activity->record(
+                    $shop,
+                    'location_settings_updated',
+                    $location->name,
+                    'Updated '.implode(', ', $fields).'.',
+                );
+            }
+        });
 
         return response()->json([
             'data' => new LocationResource($location),
@@ -80,9 +104,22 @@ class LocationController extends Controller
             'type' => ['required', Rule::in(Location::TYPES)],
         ]);
 
-        $updated = $this->shop($request)->locations()
-            ->whereIn('id', $validated['ids'])
-            ->update(['type' => $validated['type'], 'updated_at' => now()]);
+        $shop = $this->shop($request);
+        $updated = DB::transaction(function () use ($shop, $validated) {
+            $updated = $shop->locations()
+                ->whereIn('id', $validated['ids'])
+                ->update(['type' => $validated['type'], 'updated_at' => now()]);
+            if ($updated > 0) {
+                $this->activity->record(
+                    $shop,
+                    'location_types_bulk_updated',
+                    'Locations',
+                    "Updated the type for {$updated} locations.",
+                );
+            }
+
+            return $updated;
+        });
 
         return response()->json([
             'data' => ['updated' => $updated],
