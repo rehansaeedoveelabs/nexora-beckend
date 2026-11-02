@@ -35,6 +35,7 @@ class ActivityController extends Controller
                     'routing_config_updated' => 'Routing configuration updated',
                     'location_settings_updated' => 'Location settings updated',
                     'location_types_bulk_updated' => 'Location types updated',
+                    'sales_target_updated' => 'Sales target updated',
                     'order_fulfillment_reassigned' => 'Order fulfillment reassigned',
                     'order_automatically_routed' => 'Order automatically routed',
                     'order_automatic_routing_unchanged' => 'Automatic routing unchanged',

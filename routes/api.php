@@ -6,6 +6,7 @@ use App\Http\Controllers\Api\DashboardController;
 use App\Http\Controllers\Api\LocationController;
 use App\Http\Controllers\Api\OrderController;
 use App\Http\Controllers\Api\RoutingController;
+use App\Http\Controllers\Api\SalesTargetController;
 use App\Http\Controllers\Api\SessionController;
 use App\Http\Controllers\WebhookController;
 use App\Http\Middleware\VerifyShopifySessionToken;
@@ -36,5 +37,8 @@ Route::middleware([VerifyShopifySessionToken::class, 'throttle:api'])->group(fun
 
     Route::get('routing', [RoutingController::class, 'show']);
     Route::put('routing', [RoutingController::class, 'update']);
+
+    Route::get('sales-target', [SalesTargetController::class, 'show']);
+    Route::put('sales-target', [SalesTargetController::class, 'update']);
     Route::post('routing/simulate', [RoutingController::class, 'simulate'])->middleware('throttle:60,1');
 });
