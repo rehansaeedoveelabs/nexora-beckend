@@ -1,0 +1,4 @@
+{
+  "name": "Order rerouted by Nexora",
+  "description": "Triggers when Nexora reassigns an order to a different fulfillment location, either by a merchant's manual reassignment or by automatic routing."
+}

@@ -168,6 +168,76 @@ class OrderApiTest extends TestCase
             ]);
     }
 
+    public function test_reassignment_emits_flow_trigger_and_a_failed_emit_never_blocks_the_move(): void
+    {
+        config(['shopify.flow_triggers.order_rerouted' => 'nexora-order-rerouted']);
+
+        $source = $this->shop->locations()->create([
+            'shopify_id' => 'gid://shopify/Location/44',
+            'name' => 'Warehouse',
+            'is_active' => true,
+            'ships' => true,
+        ]);
+        $destination = $this->shop->locations()->create([
+            'shopify_id' => 'gid://shopify/Location/45',
+            'name' => 'Store',
+            'is_active' => true,
+            'ships' => true,
+        ]);
+
+        Http::fake([
+            $this->graphqlUrl() => function ($request) use ($source, $destination) {
+                $body = json_decode($request->body(), true);
+                if (str_contains($body['query'], 'flowTriggerReceive')) {
+                    // Simulate an undeployed/rejected trigger: Shopify returns userErrors.
+                    return Http::response(['data' => ['flowTriggerReceive' => [
+                        'userErrors' => [['field' => null, 'message' => 'No Flow trigger found for handle.']],
+                    ]]]);
+                }
+                if (str_contains($body['query'], 'MoveFulfillmentOrder')) {
+                    return Http::response(['data' => ['fulfillmentOrderMove' => [
+                        'movedFulfillmentOrder' => [
+                            'id' => 'gid://shopify/FulfillmentOrder/88',
+                            'assignedLocation' => ['location' => ['id' => $destination->shopify_id]],
+                        ],
+                        'originalFulfillmentOrder' => [
+                            'id' => 'gid://shopify/FulfillmentOrder/88',
+                            'assignedLocation' => ['location' => ['id' => $destination->shopify_id]],
+                        ],
+                    ]]]);
+                }
+
+                return Http::response(['data' => ['node' => $this->moveOrderNode($source->shopify_id)]]);
+            },
+        ]);
+
+        // The move must still succeed and be recorded even though the trigger failed.
+        $this->apiAs($this->shop)->postJson('/api/orders/1001/reassign', [
+            'destination_location_id' => $destination->id,
+        ])->assertOk()->assertJsonPath('data.order_name', '#1001');
+
+        $this->assertDatabaseHas('activity_events', [
+            'shop_id' => $this->shop->id,
+            'type' => 'order_fulfillment_reassigned',
+            'subject' => '#1001',
+        ]);
+
+        // The trigger was attempted with the exact schema payload: numeric order id
+        // (Flow reference convention), and no stray keys (strict === rejects order_name).
+        Http::assertSent(function ($request) {
+            $body = json_decode($request->body(), true);
+
+            return str_contains($body['query'], 'flowTriggerReceive')
+                && $body['variables']['handle'] === 'nexora-order-rerouted'
+                && $body['variables']['payload'] === [
+                    'order_id' => 1001,
+                    'destination' => 'Store',
+                    'partial' => false,
+                    'trigger' => 'manual',
+                ];
+        });
+    }
+
     public function test_order_reassignment_requires_write_scope_before_calling_shopify(): void
     {
         $this->shop->forceFill([

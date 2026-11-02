@@ -20,4 +20,17 @@ return [
     // Clock skew tolerated when verifying session tokens.
     'jwt_leeway' => 10,
 
+    /*
+     * Shopify Flow trigger handles, keyed by the symbolic name the backend emits.
+     * Each handle must match the `handle` declared in the Flow trigger extension's
+     * shopify.extension.toml, and the payload keys the emitter sends must match that
+     * extension's field schema. A key left null (or absent) is treated as "not
+     * configured": the emitter skips it silently so an undeployed trigger never
+     * blocks a fulfillment move. Add 'order_at_capacity' / 'safety_stock_breached'
+     * here when those extensions exist.
+     */
+    'flow_triggers' => [
+        'order_rerouted' => env('SHOPIFY_FLOW_TRIGGER_ORDER_REROUTED'),
+    ],
+
 ];

@@ -5,10 +5,13 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\Shop;
 use App\Services\Activity\ActivityLogger;
+use App\Services\Flow\FlowTriggerEmitter;
 use App\Services\Shopify\ShopifyFulfillmentMover;
 use App\Services\Shopify\ShopifyOrderReader;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+
+use function Illuminate\Support\defer;
 
 class OrderController extends Controller
 {
@@ -18,6 +21,7 @@ class OrderController extends Controller
         private readonly ShopifyOrderReader $orders,
         private readonly ShopifyFulfillmentMover $fulfillmentMover,
         private readonly ActivityLogger $activity,
+        private readonly FlowTriggerEmitter $flow,
     ) {}
 
     public function index(Request $request): JsonResponse
@@ -94,6 +98,15 @@ class OrderController extends Controller
             ? "Shopify partially moved {$result['order_name']}; review its remaining fulfillment items."
             : "Moved {$result['order_name']} to {$result['destination_name']}.";
         $this->activity->record($shop, 'order_fulfillment_reassigned', $result['order_name'], $summary);
+
+        // Fire the Flow trigger after the response: the move already succeeded, so
+        // the merchant must not wait on (or be failed by) an automation round-trip.
+        defer(fn () => $this->flow->emit($shop, 'order_rerouted', [
+            'order_id' => $orderId,
+            'destination' => $result['destination_name'],
+            'partial' => $result['partial'],
+            'trigger' => 'manual',
+        ]));
 
         return response()->json([
             'data' => [
