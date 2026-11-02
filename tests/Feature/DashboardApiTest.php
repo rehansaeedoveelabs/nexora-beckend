@@ -162,6 +162,8 @@ class DashboardApiTest extends TestCase
             ->assertOk()
             ->assertJsonPath('data.totals.assigned', 1)
             ->assertJsonPath('data.totals.split', 1)
+            ->assertJsonPath('data.totals.assignedRate', 1)
+            ->assertJsonPath('data.totals.splitRate', 1)
             ->assertJsonPath('data.distribution.0.id', (string) $store->id)
             ->assertJsonPath('data.distribution.0.value', 1)
             ->assertJsonPath('data.distribution.0.fulfilled', 1)

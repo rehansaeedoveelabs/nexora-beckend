@@ -3,6 +3,7 @@
 namespace App\Services\Shopify;
 
 use App\Models\Shop;
+use App\Services\Metrics\OrderMetrics;
 use Carbon\CarbonImmutable;
 
 class ShopifyOrderReader
@@ -104,24 +105,13 @@ class ShopifyOrderReader
         }';
         $locationData = $this->locationData($shop);
         $locationIds = array_map(fn (array $location) => $location['id'], $locationData);
-        $locations = $shop->locations()->get(['id', 'shopify_id', 'name', 'type'])->keyBy('shopify_id');
-        $counts = [];
-        $assignedCounts = [];
-        $distribution = [];
-        $fulfilledByLocation = [];
-        $splitCount = 0;
-        $recentOrders = [];
-        $orderCount = 0;
-        $assignedCount = 0;
-        $fulfilledCount = 0;
-        $cursor = null;
+        $locationRows = $shop->locations()->get(['id', 'name', 'type'])
+            ->map(fn ($location) => ['id' => $location->id, 'name' => $location->name, 'type' => $location->type])
+            ->all();
 
-        for ($offset = 0; $offset < $days; $offset++) {
-            $date = $from->addDays($offset);
-            $key = $date->format('Y-m-d');
-            $counts[$key] = 0;
-            $assignedCounts[$key] = 0;
-        }
+        // Fetch is the imperative shell; OrderMetrics owns the definitions (see that class).
+        $metrics = new OrderMetrics($locationIds, $locationRows, $days, $from, $timezone);
+        $cursor = null;
 
         do {
             $result = $this->graphql->query($shop, $query, [
@@ -130,92 +120,27 @@ class ShopifyOrderReader
             ])['orders'] ?? [];
 
             foreach ($result['nodes'] ?? [] as $order) {
-                if (($order['cancelledAt'] ?? null) !== null) {
-                    continue;
-                }
-
-                $formatted = $this->format($shop, $order, $locationData);
-                $dateKey = CarbonImmutable::parse($formatted['date'])->setTimezone($timezone)->format('Y-m-d');
-                if (! array_key_exists($dateKey, $counts)) {
-                    continue;
-                }
-
-                $orderCount++;
-                $counts[$dateKey]++;
                 $assignedShopifyIds = collect($order['fulfillmentOrders']['nodes'] ?? [])
                     ->map(fn (array $fulfillmentOrder) => $fulfillmentOrder['assignedLocation']['location']['id'] ?? null)
                     ->filter()
-                    ->unique();
+                    ->unique()
+                    ->values()
+                    ->all();
 
-                if ($assignedShopifyIds->isNotEmpty()) {
-                    $assignedCount++;
-                    $assignedCounts[$dateKey]++;
-                    if ($assignedShopifyIds->count() > 1) {
-                        $splitCount++;
-                    }
-                    foreach ($assignedShopifyIds as $shopifyId) {
-                        $locationId = $locationIds[$shopifyId] ?? null;
-                        if ($locationId !== null) {
-                            $distribution[(string) $locationId] = ($distribution[(string) $locationId] ?? 0) + 1;
-                            if ($formatted['fulfillmentStatus'] === 'fulfilled') {
-                                $fulfilledByLocation[(string) $locationId] = ($fulfilledByLocation[(string) $locationId] ?? 0) + 1;
-                            }
-                        }
-                    }
-                }
-                if ($formatted['fulfillmentStatus'] === 'fulfilled') {
-                    $fulfilledCount++;
-                }
-                if (count($recentOrders) < 6) {
-                    $recentOrders[] = $formatted;
-                }
+                $metrics->add(
+                    $this->format($shop, $order, $locationData),
+                    ($order['cancelledAt'] ?? null) !== null,
+                    $assignedShopifyIds,
+                );
             }
 
             $pageInfo = $result['pageInfo'] ?? [];
             $cursor = $pageInfo['endCursor'] ?? null;
         } while (($pageInfo['hasNextPage'] ?? false) && $cursor !== null);
 
-        $distributionRows = $locations->map(fn ($location) => [
-            'id' => (string) $location->id,
-            'name' => $location->name,
-            'type' => $location->type,
-            'value' => $distribution[(string) $location->id] ?? 0,
-            'fulfilled' => $fulfilledByLocation[(string) $location->id] ?? 0,
-        ])->values();
-        $byType = $distributionRows
-            ->groupBy(fn (array $row) => $row['type'] ?? 'unclassified')
-            ->map(fn ($rows, string $type) => [
-                'id' => $type,
-                'name' => match ($type) {
-                    'store' => 'Store',
-                    'warehouse' => 'Warehouse',
-                    'third_party' => 'Third-party',
-                    default => 'Unclassified',
-                },
-                'value' => $rows->sum('value'),
-            ])
-            ->values();
-
-        return [
-            'days' => $days,
-            'timezone' => $timezone,
-            'totals' => [
-                'orders' => $orderCount,
-                'assigned' => $assignedCount,
-                'unassigned' => $orderCount - $assignedCount,
-                'fulfilled' => $fulfilledCount,
-                'split' => $splitCount,
-            ],
-            'trend' => array_map(fn (string $key) => [
-                'label' => CarbonImmutable::parse($key, $timezone)->format('M j'),
-                'orders' => $counts[$key],
-                'assigned' => $assignedCounts[$key],
-            ], array_keys($counts)),
-            'distribution' => $distributionRows,
-            'byType' => $byType,
-            'recentOrders' => $recentOrders,
+        return array_merge($metrics->result(), [
             'asOf' => CarbonImmutable::now($timezone)->toIso8601String(),
-        ];
+        ]);
     }
 
     private function locationData(Shop $shop): array
