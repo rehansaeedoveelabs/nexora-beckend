@@ -2,10 +2,12 @@
 
 namespace Tests\Feature;
 
+use App\Jobs\SyncCheckoutRoutingConfig;
 use App\Models\Location;
 use App\Models\Shop;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Queue;
 use Tests\Concerns\InteractsWithShopify;
 use Tests\TestCase;
 
@@ -27,6 +29,7 @@ class RoutingApiTest extends TestCase
     {
         parent::setUp();
         Http::preventStrayRequests();
+        Queue::fake();
 
         $this->shop = $this->installedShop();
         $make = fn (string $name, ?string $type, array $extra = []) => $this->shop->locations()->create(array_merge([
@@ -76,7 +79,8 @@ class RoutingApiTest extends TestCase
             ->assertJsonPath('data.not_shipping', ['Snow City Warehouse'])
             ->assertJsonPath('data.plan.is_plus', false)
             ->assertJsonCount(3, 'data.locations')
-            ->assertJsonPath('data.updated_at', null);
+            ->assertJsonPath('data.updated_at', null)
+            ->assertJsonPath('data.checkout_sync.status', 'not_configured');
     }
 
     public function test_save_persists_settings_and_compiles_to_shopify_ids(): void
@@ -89,7 +93,11 @@ class RoutingApiTest extends TestCase
                 $this->fragileRule(['id' => 'rule-2', 'tags' => ['bulky'], 'action' => 'never_from', 'location_types' => [], 'location_ids' => [$this->store->id]]),
                 $this->fragileRule(['id' => 'rule-3', 'enabled' => false, 'tags' => ['ignored']]),
             ],
-        ]))->assertOk()->assertJsonPath('data.settings.rules.0.tags', ['Fragile']);
+        ]))->assertOk()
+            ->assertJsonPath('data.settings.rules.0.tags', ['Fragile'])
+            ->assertJsonPath('data.checkout_sync.status', 'pending');
+
+        Queue::assertPushed(SyncCheckoutRoutingConfig::class, fn ($job) => $job->shopId === $this->shop->id);
 
         $compiled = $this->shop->routingConfig()->first()->compiled;
 
@@ -119,6 +127,19 @@ class RoutingApiTest extends TestCase
         $this->assertSame($this->warehouse->shopify_id, $ranking[0]);
         $this->assertCount(3, $ranking);
         $this->assertNotContains($this->notShipping->shopify_id, $ranking);
+    }
+
+    public function test_checkout_sync_can_be_retried_after_a_saved_configuration(): void
+    {
+        $this->apiAs($this->shop)->postJson('/api/routing/sync')->assertStatus(409);
+
+        $this->apiAs($this->shop)->putJson('/api/routing', $this->settings())->assertOk();
+        $this->shop->routingConfig()->update(['checkout_sync_status' => 'not_synced']);
+        $this->apiAs($this->shop)->postJson('/api/routing/sync')
+            ->assertOk()
+            ->assertJsonPath('data.checkout_sync.status', 'pending');
+
+        Queue::assertPushedTimes(SyncCheckoutRoutingConfig::class, 2);
     }
 
     public function test_validation_rejects_bad_settings(): void

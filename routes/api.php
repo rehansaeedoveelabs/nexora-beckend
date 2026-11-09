@@ -37,6 +37,8 @@ Route::middleware([VerifyShopifySessionToken::class, 'throttle:api'])->group(fun
 
     Route::get('routing', [RoutingController::class, 'show']);
     Route::put('routing', [RoutingController::class, 'update']);
+    Route::post('routing/sync', [RoutingController::class, 'sync'])->middleware('throttle:6,1');
+    Route::post('routing/sync', [RoutingController::class, 'sync'])->middleware('throttle:6,1');
 
     Route::get('sales-target', [SalesTargetController::class, 'show']);
     Route::put('sales-target', [SalesTargetController::class, 'update']);

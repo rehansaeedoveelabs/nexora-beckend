@@ -20,6 +20,7 @@
 /public/storage
 /storage/*.key
 /storage/pail
+/storage/framework/testing/nexora-e2e.sqlite
 /vendor
 _ide_helper.php
 Homestead.json

@@ -11,6 +11,12 @@ return [
     // Pinned Admin GraphQL version. Bump deliberately, never "latest".
     'api_version' => env('SHOPIFY_API_VERSION', '2026-10'),
 
+    // Must match the deployed fulfillment-constraints Function extension handle.
+    'fulfillment_constraint_function_handle' => env(
+        'SHOPIFY_FULFILLMENT_CONSTRAINT_FUNCTION_HANDLE',
+        'nexora-fulfillment-constraints',
+    ),
+
     // Origin of the embedded frontend (the app URL). Only origin allowed by CORS.
     'frontend_url' => env('FRONTEND_URL'),
 

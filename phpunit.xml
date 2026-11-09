@@ -20,13 +20,15 @@
         </include>
     </source>
     <php>
-        <env name="APP_ENV" value="testing"/>
+        <!-- Unit/feature tests use isolated SQLite memory; never connect to the merchant database. -->
+        <env name="APP_ENV" value="testing" force="true"/>
         <env name="APP_MAINTENANCE_DRIVER" value="file"/>
         <env name="BCRYPT_ROUNDS" value="4"/>
         <env name="BROADCAST_CONNECTION" value="null"/>
         <env name="CACHE_STORE" value="array"/>
-        <env name="DB_CONNECTION" value="mysql"/>
-        <env name="DB_DATABASE" value="nexora_test"/>
+        <env name="DB_CONNECTION" value="sqlite" force="true"/>
+        <env name="DB_DATABASE" value=":memory:" force="true"/>
+        <env name="DB_URL" value="" force="true"/>
         <env name="SHOPIFY_API_KEY" value="test-api-key"/>
         <env name="SHOPIFY_API_SECRET" value="test-api-secret-0123456789abcdef0123"/>
         <env name="SHOPIFY_API_VERSION" value="2026-10"/>

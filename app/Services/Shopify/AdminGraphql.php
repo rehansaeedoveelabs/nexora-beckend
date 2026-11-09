@@ -80,7 +80,7 @@ class AdminGraphql
             return true;
         }
 
-        foreach ($response->json('errors') ?? [] as $error) {
+        foreach ($this->graphqlErrors($response) as $error) {
             if (($error['extensions']['code'] ?? null) === 'THROTTLED') {
                 return true;
             }
@@ -99,9 +99,8 @@ class AdminGraphql
             throw new ShopifyApiException('Shopify API request failed.', status: $response->status());
         }
 
-        $errors = $response->json('errors');
-        if (! empty($errors)) {
-            $errors = is_array($errors) ? $errors : [$errors];
+        $errors = $this->graphqlErrors($response);
+        if ($errors !== []) {
             $accessDenied = collect($errors)
                 ->contains(fn (array $error) => ($error['extensions']['code'] ?? null) === 'ACCESS_DENIED');
 
@@ -148,6 +147,35 @@ class AdminGraphql
         }
 
         return $response->json('data') ?? [];
+    }
+
+    private function graphqlErrors(Response $response): array
+    {
+        $errors = $response->json('errors');
+        if ($errors === null || $errors === []) {
+            return [];
+        }
+
+        if (is_string($errors)) {
+            return [['message' => mb_substr($errors, 0, 300)]];
+        }
+
+        if (! is_array($errors)) {
+            return [['message' => 'Shopify returned an invalid GraphQL errors payload.']];
+        }
+
+        if (! array_is_list($errors)) {
+            return [$errors];
+        }
+
+        return array_map(
+            fn ($error) => is_array($error)
+                ? $error
+                : ['message' => is_string($error)
+                    ? mb_substr($error, 0, 300)
+                    : 'Shopify returned an invalid GraphQL error entry.'],
+            $errors,
+        );
     }
 
     private function backoff(int $attempt, ?Response $response = null): void

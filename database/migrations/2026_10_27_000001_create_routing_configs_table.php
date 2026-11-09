@@ -10,10 +10,9 @@ return new class extends Migration
     {
         // One routing configuration per shop.
         //  - `settings`: what the merchant edits (local location ids, rule sentences).
-        //  - `compiled`: the same rules resolved to Shopify location GIDs. This exact JSON is what the
-        //    simulator evaluates and what gets written to the app metafield for the Shopify Functions,
-        //    so both apply the same eligibility rules and ranking. (Shopify makes the final pick among
-        //    eligible locations; the simulator approximates that step.)
+        //  - `compiled`: rules resolved to Shopify location GIDs for the backend router and simulator.
+        //    Checkout uses a separate product-ID config built from this data because Functions
+        //    cannot read product tags. Shopify chooses the final location among eligible locations.
         Schema::create('routing_configs', function (Blueprint $table) {
             $table->id();
             $table->foreignId('shop_id')->unique()->constrained()->cascadeOnDelete();

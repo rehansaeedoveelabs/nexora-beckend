@@ -58,15 +58,15 @@ class LocationsFlowTest extends DuskTestCase
         $this->browse(function (Browser $browser) {
             $browser->visit('/setup');
 
-            $this->waitForText($browser, 'Get Nexora ready');
+            $this->waitForText($browser, 'Store setup');
+            $this->waitForText($browser, '1 of 3 steps complete');
             $this->assertSees($browser, [
-                '1 of 3 steps done',
+                '1 of 3 steps complete',
                 '2 locations still need a type',
                 'Coming soon',
-                'Need a type',
-                'Active locations',
-                'Third-party',
-                'How Nexora works',
+                'To do',
+                'Import your Shopify locations',
+                'Tell Nexora what each location is',
             ]);
         });
     }
@@ -103,9 +103,9 @@ class LocationsFlowTest extends DuskTestCase
             $this->waitUntilMissingText($browser, 'needs a type');
 
             $browser->visit('/setup');
-            $this->waitForText($browser, '2 of 3 steps done');
+            $this->waitForText($browser, '2 of 3 steps complete');
             $this->assertSees($browser, ['All active locations have a type', 'Set up routing']);
-            $this->assertDoesNotSee($browser, 'still need a type');
+            $this->assertDoesNotSee($browser, '2 locations still need a type');
         });
 
         $this->assertSame('warehouse', Location::where('name', 'Lahore warehouse')->value('type'));

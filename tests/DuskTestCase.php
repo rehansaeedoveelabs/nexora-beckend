@@ -13,17 +13,79 @@ use RuntimeException;
 use Symfony\Component\Process\Process;
 
 /**
- * E2E harness: boots the real backend API and the real frontend (two `php -S` servers)
- * sharing the test database, then drives Chrome against the frontend.
+ * E2E harness: boots the real backend API and frontend against one isolated SQLite test file,
+ * then drives Chrome against the frontend. The recovered MySQL database is never used by tests.
  */
 abstract class DuskTestCase extends BaseTestCase
 {
     protected const API_PORT = 8010;
+
     protected const FRONTEND_PORT = 8011;
+
     protected const SHOP = 'e2e.myshopify.com';
 
     /** @var Process[] */
     private static array $servers = [];
+
+    protected function setUp(): void
+    {
+        putenv('APP_ENV=testing');
+        $_ENV['APP_ENV'] = 'testing';
+        $_SERVER['APP_ENV'] = 'testing';
+
+        parent::setUp();
+    }
+
+    /**
+     * Verify the actual database before DatabaseMigrations can run.
+     */
+    protected function setUpTraits()
+    {
+        if (! $this->app || ! $this->app->environment('testing')) {
+            throw new RuntimeException('E2E safety check failed: testing environment required.');
+        }
+
+        $databasePath = self::e2eDatabasePath();
+        $directory = dirname($databasePath);
+        if (! is_dir($directory) && ! mkdir($directory, 0755, true) && ! is_dir($directory)) {
+            throw new RuntimeException('E2E safety check failed: could not create the isolated test database directory.');
+        }
+        if (is_link($databasePath)) {
+            throw new RuntimeException('E2E safety check failed: refusing to use a symlink as the test database.');
+        }
+        if (! file_exists($databasePath)) {
+            $handle = fopen($databasePath, 'x');
+            if ($handle === false) {
+                throw new RuntimeException('E2E safety check failed: could not create the isolated SQLite test file.');
+            }
+            fclose($handle);
+        }
+        if (! is_file($databasePath)) {
+            throw new RuntimeException('E2E safety check failed: the isolated SQLite test path is not a regular file.');
+        }
+
+        $this->app['config']->set('database.default', 'sqlite');
+        $this->app['config']->set('database.connections.sqlite.database', $databasePath);
+        $this->app['db']->purge('sqlite');
+
+        $connectionName = $this->app['config']->get('database.default');
+        $connection = $this->app['db']->connection($connectionName);
+        $configuredDatabase = realpath($connection->getDatabaseName());
+        $actualDatabase = collect($connection->select('PRAGMA database_list'))
+            ->firstWhere('name', 'main')->file ?? null;
+
+        if (
+            $connectionName !== 'sqlite'
+            || $configuredDatabase !== $databasePath
+            || realpath($actualDatabase) !== $databasePath
+        ) {
+            throw new RuntimeException(
+                'E2E safety check failed: refusing to run migrations outside the isolated SQLite test file.'
+            );
+        }
+
+        return parent::setUpTraits();
+    }
 
     #[BeforeClass]
     public static function prepare(): void
@@ -33,6 +95,15 @@ abstract class DuskTestCase extends BaseTestCase
         }
 
         $backend = dirname(__DIR__);
+        $databasePath = self::e2eDatabasePath();
+        $directory = dirname($databasePath);
+        if (! is_dir($directory) && ! mkdir($directory, 0755, true) && ! is_dir($directory)) {
+            throw new RuntimeException('E2E setup failed: could not create the isolated test database directory.');
+        }
+        if (is_link($databasePath)) {
+            throw new RuntimeException('E2E setup failed: refusing to use a symlink as the test database.');
+        }
+
         $frontendUrl = 'http://127.0.0.1:'.static::FRONTEND_PORT;
 
         $env = [
@@ -40,16 +111,19 @@ abstract class DuskTestCase extends BaseTestCase
             'APP_DEBUG' => 'false',
             'CACHE_STORE' => 'array',
             'SESSION_DRIVER' => 'array',
-            'QUEUE_CONNECTION' => 'sync',
+            'QUEUE_CONNECTION' => 'database',
             'FRONTEND_URL' => $frontendUrl,
             'NEXORA_FRONTEND_ROOT' => dirname($backend).'/Nexora-front-end',
             'NEXORA_E2E_API' => 'http://127.0.0.1:'.static::API_PORT.'/api',
             'NEXORA_E2E_SHOP' => static::SHOP,
+            'DB_CONNECTION' => 'sqlite',
+            'DB_DATABASE' => $databasePath,
+            'DB_URL' => '',
+            'NEXORA_E2E_GUARD' => '1',
         ];
-        // DB + Shopify test credentials come from phpunit.xml (or the shell) so both servers
-        // and the test process share the same database.
-        foreach (['DB_CONNECTION', 'DB_HOST', 'DB_PORT', 'DB_DATABASE', 'DB_USERNAME', 'DB_PASSWORD',
-            'SHOPIFY_API_KEY', 'SHOPIFY_API_SECRET', 'SHOPIFY_API_VERSION', 'APP_KEY'] as $key) {
+        // Shopify test credentials come from phpunit.dusk.xml (or the shell). Both E2E servers
+        // share the isolated SQLite file, never the configured MySQL database.
+        foreach (['SHOPIFY_API_KEY', 'SHOPIFY_API_SECRET', 'SHOPIFY_API_VERSION', 'APP_KEY'] as $key) {
             if (($value = getenv($key)) !== false) {
                 $env[$key] = $value;
             }
@@ -63,6 +137,11 @@ abstract class DuskTestCase extends BaseTestCase
         ];
     }
 
+    private static function e2eDatabasePath(): string
+    {
+        return dirname(__DIR__).'/storage/framework/testing/nexora-e2e.sqlite';
+    }
+
     #[AfterClass]
     public static function stopServers(): void
     {
@@ -70,6 +149,19 @@ abstract class DuskTestCase extends BaseTestCase
             $server->stop(1);
         }
         self::$servers = [];
+
+        foreach ([
+            self::e2eDatabasePath(),
+            self::e2eDatabasePath().'-wal',
+            self::e2eDatabasePath().'-shm',
+        ] as $testDatabaseFile) {
+            if (! file_exists($testDatabaseFile)) {
+                continue;
+            }
+            if (is_link($testDatabaseFile) || ! is_file($testDatabaseFile) || ! unlink($testDatabaseFile)) {
+                throw new RuntimeException('E2E cleanup failed: could not safely remove the isolated SQLite test file.');
+            }
+        }
     }
 
     private static bool $frontendBuilt = false;

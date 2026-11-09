@@ -5,6 +5,7 @@ namespace Tests\Browser;
 use App\Models\Location;
 use App\Models\RoutingConfig;
 use App\Models\Shop;
+use App\Services\Routing\RoutingConfigCompiler;
 use Illuminate\Foundation\Testing\DatabaseMigrations;
 use Laravel\Dusk\Browser;
 use Tests\Browser\Concerns\DrivesPolaris;
@@ -17,14 +18,17 @@ class RoutingFlowTest extends DuskTestCase
 {
     use DatabaseMigrations, DrivesPolaris;
 
+    private Shop $shop;
+
     private Location $store;
+
     private Location $warehouse;
 
     protected function setUp(): void
     {
         parent::setUp();
 
-        $shop = Shop::create([
+        $this->shop = Shop::create([
             'domain' => self::SHOP,
             'name' => 'oveelab',
             'plan_name' => 'development',
@@ -36,7 +40,7 @@ class RoutingFlowTest extends DuskTestCase
             'locations_synced_at' => now(),
         ]);
 
-        $make = fn (string $name, ?string $type, array $extra = []) => $shop->locations()->create(array_merge([
+        $make = fn (string $name, ?string $type, array $extra = []) => $this->shop->locations()->create(array_merge([
             'shopify_id' => 'gid://shopify/Location/'.crc32($name),
             'name' => $name,
             'type' => $type,
@@ -57,10 +61,10 @@ class RoutingFlowTest extends DuskTestCase
 
             $this->waitForText($browser, 'Location priority');
             $this->assertSees($browser, [
-                'Rules are saved and testable now',
+                'Checkout rules are not set up yet',
                 'Lahore warehouse',
                 'Shop location',
-                'Shopify only lets apps enforce this order at checkout on Shopify Plus',
+                'This priority guides Nexora’s automatic order routing and simulator.',
                 'Not used for online orders: Snow City Warehouse',
                 'No product rules yet',
                 'Test an order',
@@ -91,6 +95,26 @@ class RoutingFlowTest extends DuskTestCase
         $this->assertCount(3, $priority);
     }
 
+    public function test_existing_routing_settings_can_start_checkout_sync(): void
+    {
+        $compiler = app(RoutingConfigCompiler::class);
+        $settings = $compiler->defaults($this->shop);
+        $this->shop->routingConfig()->create([
+            'settings' => $settings,
+            'compiled' => $compiler->compile($this->shop, $settings),
+            'schema_version' => RoutingConfigCompiler::SCHEMA_VERSION,
+        ]);
+
+        $this->browse(function (Browser $browser) {
+            $browser->visit('/routing');
+            $this->waitForText($browser, 'Checkout sync has not run yet');
+            $this->clickButton($browser, 'Sync now');
+            $this->waitForText($browser, 'Checkout sync queued');
+        });
+
+        $this->assertSame('pending', $this->shop->routingConfig()->first()->checkout_sync_status);
+    }
+
     public function test_merchant_tests_a_rule_in_the_simulator_before_saving_it(): void
     {
         $this->browse(function (Browser $browser) {
@@ -111,7 +135,7 @@ class RoutingFlowTest extends DuskTestCase
             $this->waitForText($browser, 'Ships from Lahore warehouse in one package');
             $this->assertSees($browser, [
                 'Shop location can’t ship Sample product because of your rule: products tagged “fragile” only ship from warehouses.',
-                'On your plan, Shopify may pick a different location',
+                'At checkout, Shopify chooses among eligible locations',
             ]);
         });
 
@@ -192,13 +216,13 @@ class RoutingFlowTest extends DuskTestCase
         $this->assertContains('warehouse', $config->settings['rules'][0]['location_types']);
     }
 
-    public function test_full_page_builder_requires_a_tag(): void
+    public function test_full_page_builder_prevents_saving_an_unchanged_empty_rule(): void
     {
         $this->browse(function (Browser $browser) {
             $browser->visit('/routing/new');
             $this->waitForText($browser, 'Create routing rule');
-            $this->clickButton($browser, 'Create rule');
-            $this->waitForText($browser, 'Add at least one product tag.');
+            $disabled = $browser->script("return document.querySelector('s-button[slot=\"primary-action\"]').disabled;")[0];
+            $this->assertTrue($disabled);
         });
 
         $this->assertSame(0, RoutingConfig::count());

@@ -1,0 +1,7 @@
+name = "frontend"
+roles = ["frontend"]
+port = 5173
+webhooks_path = "/api/webhooks"
+
+[commands]
+dev = "node keepalive.js"
