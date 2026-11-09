@@ -52,6 +52,11 @@ class OrderApiTest extends TestCase
             ->assertJsonPath('data.0.items.0.qty', 2)
             ->assertJsonPath('data.0.shippingEstimate', 8.5)
             ->assertJsonPath('data.0.reassignment.eligible', true)
+            ->assertJsonPath('data.0.routingStatus', 'not_recorded')
+            ->assertJsonPath('data.0.fulfillmentOrders.0.id', '88')
+            ->assertJsonPath('data.0.fulfillmentOrders.0.status', 'OPEN')
+            ->assertJsonPath('data.0.fulfillmentOrders.0.requestStatus', 'UNSUBMITTED')
+            ->assertJsonPath('data.0.fulfillmentOrders.0.assignedLocationId', (string) $location->id)
             ->assertJsonPath('meta.page_info.has_next_page', true)
             ->assertJsonPath('meta.page_info.end_cursor', 'cursor-2')
             ->assertJsonMissingPath('data.0.customer');
@@ -60,9 +65,39 @@ class OrderApiTest extends TestCase
             $body = json_decode($request->body(), true);
 
             return str_contains($body['query'], 'orders(first: $first, after: $after')
+                && str_contains($body['query'], 'requestStatus')
                 && ! str_contains($body['query'], 'totalQuantity')
                 && $body['variables'] === ['first' => 20, 'after' => 'cursor-1'];
         });
+    }
+
+    public function test_order_list_marks_submitted_fulfillment_orders_ineligible_like_the_mover(): void
+    {
+        $this->shop->locations()->create([
+            'shopify_id' => 'gid://shopify/Location/44',
+            'name' => 'Warehouse',
+        ]);
+
+        $order = $this->orderNode();
+        $order['fulfillmentOrders']['nodes'][0]['requestStatus'] = 'SUBMITTED';
+
+        Http::fake([
+            $this->graphqlUrl() => Http::response(['data' => [
+                'orders' => [
+                    'nodes' => [$order],
+                    'pageInfo' => ['hasNextPage' => false, 'endCursor' => null],
+                ],
+            ]]),
+        ]);
+
+        $this->apiAs($this->shop)->getJson('/api/orders?first=5')
+            ->assertOk()
+            ->assertJsonPath('data.0.reassignment.eligible', false)
+            ->assertJsonPath(
+                'data.0.reassignment.reason',
+                'Shopify has already started or requested this fulfillment, so it cannot be reassigned here.',
+            )
+            ->assertJsonPath('data.0.fulfillmentOrders.0.requestStatus', 'SUBMITTED');
     }
 
     public function test_order_list_logs_safe_details_for_shopify_graphql_errors(): void
@@ -87,6 +122,24 @@ class OrderApiTest extends TestCase
                 && $context['errors'][0]['code'] === 'GRAPHQL_VALIDATION_FAILED'
                 && $context['errors'][0]['path'] === ['orders']
                 && $context['errors'][0]['message'] === 'Field "unknownField" does not exist on type "Order".');
+    }
+
+    public function test_order_list_handles_a_string_graphql_errors_payload(): void
+    {
+        Log::spy();
+        Http::fake([
+            $this->graphqlUrl() => Http::response(['errors' => 'Temporary upstream failure']),
+        ]);
+
+        $this->apiAs($this->shop)->getJson('/api/orders?first=20')
+            ->assertStatus(502)
+            ->assertJsonPath('message', 'Shopify is not responding right now. Try again in a moment.');
+
+        Log::shouldHaveReceived('warning')
+            ->once()
+            ->withArgs(fn (string $message, array $context) => $message === 'Shopify Admin GraphQL returned errors'
+                && $context['shop'] === $this->shop->domain
+                && $context['errors'][0]['message'] === 'Temporary upstream failure');
     }
 
     public function test_order_detail_uses_the_shop_scoped_shopify_order_id(): void

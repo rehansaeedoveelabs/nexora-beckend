@@ -68,7 +68,7 @@ class DashboardApiTest extends TestCase
 
             return str_contains($body['query'], 'orders(first: 250')
                 && ! str_contains($body['query'], 'lineItems')
-                && ! str_contains($body['query'], 'requestStatus')
+                && str_contains($body['query'], 'requestStatus')
                 && str_starts_with($body['variables']['search'], 'created_at:>=');
         });
     }

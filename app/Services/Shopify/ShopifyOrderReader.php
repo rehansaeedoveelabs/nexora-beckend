@@ -18,6 +18,7 @@ class ShopifyOrderReader
             nodes {
                 id
                 status
+                requestStatus
                 assignedLocation { location { id name } }
             }
             pageInfo { hasNextPage }
@@ -43,6 +44,7 @@ class ShopifyOrderReader
             nodes {
                 id
                 status
+                requestStatus
                 assignedLocation { location { id name } }
             }
             pageInfo { hasNextPage }
@@ -177,11 +179,33 @@ class ShopifyOrderReader
             $shippingLines,
         ));
         $currency = $shippingLines[0]['discountedPriceSet']['shopMoney']['currencyCode'] ?? $shop->currency ?? 'USD';
+        $hasMoreFulfillmentOrders = (bool) ($order['fulfillmentOrders']['pageInfo']['hasNextPage'] ?? false);
         $reassignmentReason = $this->reassignmentBlockReason(
             $order,
             $fulfillmentOrders,
-            $order['fulfillmentOrders']['pageInfo']['hasNextPage'] ?? false,
+            $hasMoreFulfillmentOrders,
             $locationsByShopifyId,
+        );
+        $formattedFulfillmentOrders = array_map(
+            function (array $fulfillmentOrder) use ($locationsByShopifyId) {
+                $location = $fulfillmentOrder['assignedLocation']['location'] ?? null;
+                $shopifyLocationId = $location['id'] ?? null;
+
+                return [
+                    'id' => isset($fulfillmentOrder['id'])
+                        ? substr($fulfillmentOrder['id'], strrpos($fulfillmentOrder['id'], '/') + 1)
+                        : null,
+                    'status' => $fulfillmentOrder['status'] ?? null,
+                    'requestStatus' => $fulfillmentOrder['requestStatus'] ?? null,
+                    'assignedLocationId' => $shopifyLocationId !== null
+                        && isset($locationsByShopifyId[$shopifyLocationId]['id'])
+                        && $locationsByShopifyId[$shopifyLocationId]['id'] !== ''
+                            ? (string) $locationsByShopifyId[$shopifyLocationId]['id']
+                            : null,
+                    'assignedLocationName' => $location['name'] ?? null,
+                ];
+            },
+            $fulfillmentOrders,
         );
 
         return [
@@ -208,10 +232,12 @@ class ShopifyOrderReader
             'assignedLocationName' => $shipments[0]['locationName'] ?? null,
             'shippingEstimate' => $shippingLines === [] ? null : $shippingAmount,
             'currency' => $currency,
-            'routingStatus' => 'pending',
+            // Move outcomes live in Activity; this field must not imply an in-flight routing job.
+            'routingStatus' => 'not_recorded',
             'fulfillmentStatus' => $this->fulfillmentStatus($order['displayFulfillmentStatus'] ?? null),
             'split' => count($shipments) > 1,
             'shipments' => $shipments,
+            'fulfillmentOrders' => $formattedFulfillmentOrders,
             'candidates' => [],
             'decisionReason' => 'Automatic routing outcomes are recorded in Activity; detailed routing decisions are not stored on this order.',
             'reassignment' => [
@@ -222,6 +248,10 @@ class ShopifyOrderReader
         ];
     }
 
+    /**
+     * Keep eligibility identical to ShopifyFulfillmentMover preflight so the UI never offers a move
+     * the mover would immediately block.
+     */
     private function reassignmentBlockReason(
         array $order,
         array $fulfillmentOrders,
@@ -236,8 +266,9 @@ class ShopifyOrderReader
         }
 
         $fulfillmentOrder = $fulfillmentOrders[0];
-        if (($fulfillmentOrder['status'] ?? null) !== 'OPEN') {
-            return 'Shopify has already started this fulfillment, so it cannot be reassigned here.';
+        if (($fulfillmentOrder['status'] ?? null) !== 'OPEN'
+            || ! in_array($fulfillmentOrder['requestStatus'] ?? null, [null, 'UNSUBMITTED'], true)) {
+            return 'Shopify has already started or requested this fulfillment, so it cannot be reassigned here.';
         }
 
         $sourceShopifyId = $fulfillmentOrder['assignedLocation']['location']['id'] ?? null;
