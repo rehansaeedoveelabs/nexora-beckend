@@ -7,7 +7,14 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class RoutingConfig extends Model
 {
-    protected $fillable = ['settings', 'compiled', 'schema_version'];
+    protected $fillable = [
+        'settings',
+        'compiled',
+        'schema_version',
+        'checkout_sync_status',
+        'checkout_sync_error',
+        'checkout_synced_at',
+    ];
 
     protected function casts(): array
     {
@@ -15,6 +22,7 @@ class RoutingConfig extends Model
             'settings' => 'array',
             'compiled' => 'array',
             'schema_version' => 'integer',
+            'checkout_synced_at' => 'datetime',
         ];
     }
 

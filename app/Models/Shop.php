@@ -60,6 +60,11 @@ class Shop extends Model
         return $this->hasOne(RoutingConfig::class);
     }
 
+    public function salesTarget(): HasOne
+    {
+        return $this->hasOne(SalesTarget::class);
+    }
+
     public function isPlus(): bool
     {
         return $this->plan_name === 'plus';

@@ -2,6 +2,7 @@
 
 namespace App\Services\Routing;
 
+use App\Exceptions\ShopifyApiException;
 use App\Models\Location;
 use App\Models\Shop;
 
@@ -38,20 +39,30 @@ class FunctionConfigBuilder
             'province_code' => $l->province_code,
         ])->all();
 
-        $products = $this->resolver->resolve($shop, $compiled['tags'] ?? []);
+        if (! is_array($compiled['tags'] ?? null)) {
+            throw new ShopifyApiException('Could not resolve the routing rule tags for checkout.');
+        }
+
+        $products = $this->resolver->resolve($shop, $compiled['tags']);
 
         $productConstraints = [];
         foreach ($products as $productGid => $matchingTags) {
-            $eligible = $this->engine->eligibleByLine($compiled, [
+            $eligibleByLine = $this->engine->eligibleByLine($compiled, [
                 'lines' => [['id' => $productGid, 'tags' => $matchingTags]],
                 'destination' => [],
                 'locations' => $scenarioLocations,
-            ])[$productGid] ?? $allGids;
+            ]);
+            if (! array_key_exists($productGid, $eligibleByLine)) {
+                throw new ShopifyApiException('Could not resolve eligible locations for a product.');
+            }
+            $eligible = $eligibleByLine[$productGid];
 
             // Only record products a rule actually narrows; unconstrained products need no entry.
             $sortedEligible = $eligible;
             sort($sortedEligible);
-            if ($sortedEligible !== $allGids) {
+            $sortedAll = $allGids;
+            sort($sortedAll);
+            if ($sortedEligible !== $sortedAll) {
                 $productConstraints[$productGid] = array_values($eligible);
             }
         }

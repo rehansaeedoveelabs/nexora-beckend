@@ -2,6 +2,7 @@
 
 namespace App\Services\Locations;
 
+use App\Jobs\SyncCheckoutRoutingConfig;
 use App\Models\Location;
 use App\Models\Shop;
 use App\Services\Shopify\AdminGraphql;
@@ -38,21 +39,27 @@ class LocationSync
 
         $seen = [];
         $cursor = null;
+        $checkoutRelevantChanged = false;
 
         do {
             $data = $this->graphql->query($shop, $query, ['cursor' => $cursor]);
             $page = $data['locations'] ?? ['nodes' => [], 'pageInfo' => ['hasNextPage' => false]];
 
             foreach ($page['nodes'] as $node) {
-                $this->upsert($shop, $node);
+                $this->upsert($shop, $node, $checkoutRelevantChanged);
                 $seen[] = $node['id'];
             }
 
             $cursor = $page['pageInfo']['endCursor'] ?? null;
         } while (($page['pageInfo']['hasNextPage'] ?? false) && $cursor !== null);
 
-        $shop->locations()->whereNotIn('shopify_id', $seen)->delete();
+        $removed = $shop->locations()->whereNotIn('shopify_id', $seen)->delete();
+        $checkoutRelevantChanged = $checkoutRelevantChanged || $removed > 0;
         $shop->forceFill(['locations_synced_at' => now()])->save();
+
+        if ($checkoutRelevantChanged) {
+            SyncCheckoutRoutingConfig::queueFor($shop);
+        }
 
         return count($seen);
     }
@@ -71,20 +78,32 @@ class LocationSync
             return null;
         }
 
-        return $this->upsert($shop, $node);
+        $checkoutRelevantChanged = false;
+        $location = $this->upsert($shop, $node, $checkoutRelevantChanged);
+        if ($checkoutRelevantChanged) {
+            SyncCheckoutRoutingConfig::queueFor($shop);
+        }
+
+        return $location;
     }
 
     public function remove(Shop $shop, string $gid): void
     {
-        $shop->locations()->where('shopify_id', $gid)->delete();
+        if ($shop->locations()->where('shopify_id', $gid)->delete() > 0) {
+            SyncCheckoutRoutingConfig::queueFor($shop);
+        }
     }
 
-    public function upsert(Shop $shop, array $node): Location
+    public function upsert(Shop $shop, array $node, ?bool &$checkoutRelevantChanged = null): Location
     {
         $address = $node['address'] ?? [];
         $managedBy = $node['fulfillmentService']['serviceName'] ?? null;
 
         $location = $shop->locations()->firstOrNew(['shopify_id' => $node['id']]);
+        $wasNew = ! $location->exists;
+        $previousActive = $location->is_active;
+        $previousShips = $location->ships;
+        $previousType = $location->type;
         $location->fill([
             'name' => $node['name'],
             'address1' => $address['address1'] ?? null,
@@ -104,6 +123,14 @@ class LocationSync
         // the merchant can still change it.
         if (! $location->exists && $managedBy !== null && $location->type === null) {
             $location->type = Location::TYPE_THIRD_PARTY;
+        }
+
+        if ($checkoutRelevantChanged !== null) {
+            $checkoutRelevantChanged = $checkoutRelevantChanged
+                || $wasNew
+                || $previousActive !== $location->is_active
+                || $previousShips !== $location->ships
+                || $previousType !== $location->type;
         }
 
         $location->save();

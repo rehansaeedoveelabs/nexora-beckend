@@ -62,9 +62,15 @@ class AutomaticOrderRouterTest extends TestCase
 
     public function test_new_order_moves_only_to_a_fully_stocked_routing_destination(): void
     {
+        config(['shopify.flow_triggers.order_rerouted' => 'nexora-order-rerouted']);
+
         Http::fake([
             $this->graphqlUrl() => function (Request $request) {
                 $query = json_decode($request->body(), true)['query'];
+
+                if (str_contains($query, 'flowTriggerReceive')) {
+                    return Http::response(['data' => ['flowTriggerReceive' => ['userErrors' => []]]]);
+                }
 
                 if (str_contains($query, 'AutomaticRoutingOrder')) {
                     return Http::response(['data' => ['node' => $this->orderNode([
@@ -80,18 +86,11 @@ class AutomaticOrderRouterTest extends TestCase
                     ]]]);
                 }
 
-                if (str_contains($query, 'OrderFulfillmentForMove')) {
-                    return Http::response(['data' => ['node' => [
-                        'name' => '#1001',
-                        'cancelledAt' => null,
-                        'displayFulfillmentStatus' => 'UNFULFILLED',
-                        'fulfillmentOrders' => ['nodes' => [[
-                            'id' => 'gid://shopify/FulfillmentOrder/1',
-                            'status' => 'OPEN',
-                            'requestStatus' => 'UNSUBMITTED',
-                            'assignedLocation' => ['location' => ['id' => $this->store->shopify_id]],
-                        ]]],
-                    ]]]);
+                if (str_contains($query, 'OrderForFulfillmentMove')) {
+                    return Http::response(['data' => ['node' => $this->orderNode([
+                        $this->store->shopify_id => 8,
+                        $this->warehouse->shopify_id => 5,
+                    ])]]);
                 }
 
                 if (str_contains($query, 'MoveFulfillmentOrder')) {
@@ -123,6 +122,19 @@ class AutomaticOrderRouterTest extends TestCase
             json_decode($request->body(), true)['query'],
             'fulfillmentOrderMove',
         ));
+        // Lock the exact automatic-path Flow payload against the trigger schema.
+        Http::assertSent(function (Request $request) {
+            $body = json_decode($request->body(), true);
+
+            return str_contains($body['query'], 'flowTriggerReceive')
+                && $body['variables']['handle'] === 'nexora-order-rerouted'
+                && $body['variables']['payload'] === [
+                    'order_id' => 1001,
+                    'destination' => 'Warehouse',
+                    'partial' => false,
+                    'trigger' => 'automatic',
+                ];
+        });
     }
 
     public function test_it_leaves_orders_untouched_when_inventory_cannot_be_verified(): void
@@ -226,6 +238,7 @@ class AutomaticOrderRouterTest extends TestCase
         }
 
         return [
+            'id' => 'gid://shopify/Order/1001',
             'name' => '#1001',
             'cancelledAt' => null,
             'displayFulfillmentStatus' => 'UNFULFILLED',
@@ -237,7 +250,11 @@ class AutomaticOrderRouterTest extends TestCase
                     'variant' => [
                         'product' => ['tags' => ['fragile']],
                         'inventoryItem' => ['inventoryLevels' => [
-                            'nodes' => $levels,
+                            'nodes' => array_map(function (array $level) {
+                                $level['quantities'][] = ['name' => 'safety_stock', 'quantity' => 0];
+
+                                return $level;
+                            }, $levels),
                             'pageInfo' => ['hasNextPage' => false],
                         ]],
                     ],

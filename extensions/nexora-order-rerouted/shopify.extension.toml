@@ -1,0 +1,43 @@
+# Shopify Flow trigger: "Order rerouted by Nexora".
+# The backend emits this at runtime via flowTriggerReceive (see
+# App\Services\Flow\FlowTriggerEmitter); this file declares what merchants see in
+# Flow and the exact payload shape the emitter sends.
+#
+# Deploy these hand-authored files with `shopify app deploy` (the CLI assigns the
+# extension uid on first deploy). Do NOT scaffold this with `shopify app generate
+# extension` unless you re-run the Node guard afterward -- generator templates can
+# drop a package.json, which the Node guard must not find.
+#
+# Flow triggers are not version-pinned, so no api_version here (unlike the Function
+# extension). After deploy, the trigger handle is the literal `nexora-order-rerouted`;
+# set that value in SHOPIFY_FLOW_TRIGGER_ORDER_REROUTED.
+
+[[extensions]]
+name = "t:name"
+handle = "nexora-order-rerouted"
+uid = "ae38cccd-7315-0524-e20e-cac25fb3c3db86452825"
+type = "flow_trigger"
+description = "t:description"
+
+  [settings]
+
+    # The rerouted order. Flow receives this as `order_id` = the order's numeric
+    # legacyResourceId (a JSON integer, not a GID). Reference fields take no `key`.
+    [[settings.fields]]
+    type = "order_reference"
+
+    # Destination location name the order was routed to.
+    # Custom-field keys must be alphabetic characters or spaces only (no underscores).
+    [[settings.fields]]
+    type = "single_line_text_field"
+    key = "destination"
+
+    # True when Shopify only partially moved the order's items.
+    [[settings.fields]]
+    type = "boolean"
+    key = "partial"
+
+    # How the move happened: "manual" (merchant reassignment) or "automatic" (routing).
+    [[settings.fields]]
+    type = "single_line_text_field"
+    key = "trigger"

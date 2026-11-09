@@ -3,8 +3,10 @@
 namespace Tests\Feature;
 
 use App\Jobs\BootstrapShop;
+use App\Jobs\SyncCheckoutRoutingConfig;
 use App\Models\Location;
 use App\Models\Shop;
+use App\Services\Routing\RoutingConfigCompiler;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
@@ -102,6 +104,25 @@ class LocationApiTest extends TestCase
             'subject' => 'Lahore warehouse',
             'summary' => 'Updated daily order limit, location type, supported tags.',
         ]);
+    }
+
+    public function test_location_type_changes_resync_saved_checkout_rules(): void
+    {
+        $compiler = app(RoutingConfigCompiler::class);
+        $settings = $compiler->defaults($this->shop);
+        $this->shop->routingConfig()->create([
+            'settings' => $settings,
+            'compiled' => $compiler->compile($this->shop, $settings),
+            'schema_version' => RoutingConfigCompiler::SCHEMA_VERSION,
+            'checkout_sync_status' => 'synced',
+        ]);
+        $locationId = $this->shop->locations()->whereNull('type')->value('id');
+
+        $this->apiAs($this->shop)->patchJson("/api/locations/{$locationId}", ['type' => Location::TYPE_WAREHOUSE])
+            ->assertOk();
+
+        $this->assertSame('pending', $this->shop->routingConfig()->first()->checkout_sync_status);
+        Queue::assertPushed(SyncCheckoutRoutingConfig::class, fn ($job) => $job->shopId === $this->shop->id);
     }
 
     public function test_update_can_clear_a_cap(): void

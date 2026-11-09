@@ -9,9 +9,8 @@ use Tests\Browser\Concerns\DrivesPolaris;
 use Tests\DuskTestCase;
 
 /**
- * Smoke test for the full OMS route map: every key route renders its heading, no uncaught JS error
- * is recorded, and the "Something went wrong" boundary never appears. The dashboard, location detail
- * and placeholder pages run on mock data; /setup uses the real backend.
+ * Smoke test for current live-data routes and truthful integration-status pages. Shopify API access
+ * is not stubbed, so data-backed routes are checked for a recoverable error state rather than demo data.
  */
 class AppRoutesSmokeTest extends DuskTestCase
 {
@@ -22,71 +21,121 @@ class AppRoutesSmokeTest extends DuskTestCase
         parent::setUp();
 
         // An installed shop so /setup's /session + /locations calls succeed.
-        Shop::create([
-            'domain' => self::SHOP,
+        Shop::firstOrCreate(['domain' => self::SHOP], [
             'name' => 'oveelab',
+            'scopes' => 'read_orders,read_third_party_fulfillment_orders,write_merchant_managed_fulfillment_orders',
             'access_token' => 'shpat_e2e',
             'access_token_expires_at' => now()->addHour(),
             'refresh_token' => 'shprt_e2e',
             'refresh_token_expires_at' => now()->addDays(90),
+
             'installed_at' => now(),
             'locations_synced_at' => now(),
         ]);
     }
 
-    public function test_dashboard_renders_with_kpis_and_charts(): void
+    public function test_dashboard_shows_a_recoverable_live_data_error(): void
     {
         $this->browse(function (Browser $browser) {
             $browser->visit('/');
             $this->waitForText($browser, 'Fulfillment overview');
-            $this->assertSees($browser, [
-                'Orders routed',
-                'Estimated shipping savings',
-                'On-time fulfillment',
-                'Shipping savings trend',
-                'Location capacity',
-            ]);
+            $this->waitForText($browser, 'We couldn’t load this page');
+            $this->assertSees($browser, ['Shopify']);
             $this->assertNoPageErrors($browser);
         });
     }
 
-    public function test_location_detail_renders_from_mock_data(): void
-    {
-        $this->browse(function (Browser $browser) {
-            $browser->visit('/locations/karachi-wh');
-            $this->waitForText($browser, 'Karachi Warehouse');
-            $this->assertSees($browser, ['Capacity', 'Fulfillment', 'Recent routed orders']);
-            $this->assertNoPageErrors($browser);
-        });
-    }
-
-    public function test_orders_list_renders_with_filters(): void
+    public function test_orders_page_shows_a_recoverable_live_data_error(): void
     {
         $this->browse(function (Browser $browser) {
             $browser->visit('/orders');
-            $this->waitForText($browser, 'Routed orders');
-            $this->assertSees($browser, ['#1001', 'Ship cost', 'Routing', 'Fulfillment']);
+            $this->waitForText($browser, 'Orders');
+            $this->waitForText($browser, 'We couldn’t load this page');
+            $this->assertSees($browser, ['Shopify']);
             $this->assertNoPageErrors($browser);
         });
     }
 
-    public function test_order_detail_explains_the_decision(): void
+    public function test_order_detail_shows_a_recoverable_live_data_error(): void
     {
         $this->browse(function (Browser $browser) {
-            $browser->visit('/orders/ord-1001');
-            $this->waitForText($browser, 'Why this location?');
-            $this->assertSees($browser, ['Order summary', 'Candidate locations', 'Items', 'Fulfillment timeline']);
+            $browser->visit('/orders/1001');
+            $this->waitForText($browser, 'Order');
+            $this->waitForText($browser, 'We couldn’t load this page');
             $this->assertNoPageErrors($browser);
         });
     }
 
-    public function test_placeholder_routes_render(): void
+    public function test_analytics_page_shows_a_recoverable_live_data_error(): void
     {
         $this->browse(function (Browser $browser) {
-            foreach (['/savings' => 'Shipping cost savings', '/capacity' => 'Capacity & predictions', '/settings' => 'Settings'] as $path => $heading) {
+            $browser->visit('/analytics');
+            $this->waitForText($browser, 'Fulfillment analytics');
+            $this->waitForText($browser, 'We couldn’t load this page');
+            $this->assertNoPageErrors($browser);
+        });
+    }
+
+    public function test_automation_gallery_distinguishes_available_and_unavailable_templates(): void
+    {
+        $this->browse(function (Browser $browser) {
+            $browser->visit('/automations');
+            $this->waitForText($browser, 'Templates');
+            $this->assertSees($browser, [
+                'Automatically route eligible new orders',
+                'Implemented',
+                'Not available yet',
+                'Automatic routing',
+            ]);
+
+            $this->typeInto($browser, 's-search-field', 'Search automation templates', 'capacity');
+            $this->waitForText($browser, 'Get an alert when a location reaches capacity');
+            $this->assertDoesNotSee($browser, 'Automatically route eligible new orders');
+            $this->assertNoPageErrors($browser);
+        });
+    }
+
+    public function test_settings_shows_shop_data_and_navigates_between_supported_sections(): void
+    {
+        $this->browse(function (Browser $browser) {
+            $browser->visit('/settings');
+            $this->waitForText($browser, 'Store information');
+            $this->assertSees($browser, [
+                'Configure your Nexora preferences and store information.',
+                self::SHOP,
+                'Nexora configuration',
+                'Managed by Shopify',
+            ]);
+
+            $this->clickButton($browser, 'Fulfillment');
+            $this->waitForText($browser, 'Fulfillment configuration');
+            $this->assertSees($browser, ['Manage locations', 'Open routing rules']);
+
+            $this->clickButton($browser, 'Routing');
+            $this->waitForText($browser, 'Routing overview');
+            $this->assertSees($browser, ['Nexora defaults · not saved', 'Manage routing rules']);
+
+            $this->clickButton($browser, 'Advanced');
+            $this->waitForText($browser, 'Operational diagnostics');
+            $this->assertSees($browser, ['Checkout rule sync', 'Managed by Nexora', 'not merchant-configurable']);
+
+            $this->clickButton($browser, 'Notifications');
+            $this->waitForText($browser, 'Notification delivery isn’t connected');
+            $this->assertNoPageErrors($browser);
+        });
+    }
+
+    public function test_integration_status_routes_explain_unavailable_features(): void
+    {
+        $this->browse(function (Browser $browser) {
+            foreach ([
+                '/savings' => ['Shipping savings', 'Savings are not yet measurable', 'Live operational data'],
+                '/settings/notifications' => ['Settings', 'Notification delivery isn’t connected'],
+                '/settings/billing' => ['Plan & usage', 'Shopify Billing isn’t connected'],
+            ] as $path => [$heading, $status]) {
                 $browser->visit($path);
                 $this->waitForText($browser, $heading);
-                $this->assertSees($browser, ['Arriving in this build']);
+                $this->assertSees($browser, [$status]);
                 $this->assertNoPageErrors($browser);
             }
         });

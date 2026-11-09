@@ -4,7 +4,9 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Http\Resources\LocationResource;
+use App\Jobs\SyncCheckoutRoutingConfig;
 use App\Models\Location;
+use App\Models\RoutingConfig;
 use App\Models\Shop;
 use App\Services\Activity\ActivityLogger;
 use App\Services\Routing\ReasonFormatter;
@@ -30,7 +32,7 @@ class RoutingController extends Controller
         $config = $shop->routingConfig;
         $settings = $config?->settings ?? $this->compiler->defaults($shop);
 
-        return response()->json(['data' => $this->payload($shop, $settings, $config?->updated_at?->toIso8601String())]);
+        return response()->json(['data' => $this->payload($shop, $settings, $config)]);
     }
 
     public function update(Request $request): JsonResponse
@@ -44,6 +46,8 @@ class RoutingController extends Controller
                 'settings' => $settings,
                 'compiled' => $compiled,
                 'schema_version' => RoutingConfigCompiler::SCHEMA_VERSION,
+                'checkout_sync_status' => 'pending',
+                'checkout_sync_error' => null,
             ]);
             $this->activity->record(
                 $shop,
@@ -55,9 +59,24 @@ class RoutingController extends Controller
             return $config;
         });
 
-        // Phase 2b: dispatch the job that writes `compiled` to the app metafield for the Functions.
+        SyncCheckoutRoutingConfig::queueFor($shop);
+        $config->refresh();
 
-        return response()->json(['data' => $this->payload($shop, $settings, $config->updated_at->toIso8601String())]);
+        return response()->json(['data' => $this->payload($shop, $settings, $config)]);
+    }
+
+    public function sync(Request $request): JsonResponse
+    {
+        $shop = $this->shop($request);
+        $config = $shop->routingConfig;
+        if (! $config) {
+            return response()->json(['message' => 'Save a routing configuration before syncing checkout rules.'], 409);
+        }
+
+        SyncCheckoutRoutingConfig::queueFor($shop);
+        $config->refresh();
+
+        return response()->json(['data' => $this->payload($shop, $config->settings, $config)]);
     }
 
     /**
@@ -137,7 +156,7 @@ class RoutingController extends Controller
         unset($shipment);
 
         return response()->json(['data' => $result + [
-            'ranking_enforced' => $shop->isPlus(),
+            'ranking_enforced' => false,
             'warnings' => $this->compiler->warnings($shop, $settings, $compiled),
         ]]);
     }
@@ -194,7 +213,7 @@ class RoutingController extends Controller
         ];
     }
 
-    private function payload(Shop $shop, array $settings, ?string $updatedAt): array
+    private function payload(Shop $shop, array $settings, ?RoutingConfig $config): array
     {
         $shipping = $this->compiler->shippingLocations($shop);
         $compiled = $this->compiler->compile($shop, $settings);
@@ -205,7 +224,12 @@ class RoutingController extends Controller
             'plan' => ['is_plus' => $shop->isPlus(), 'name' => $shop->plan_name],
             'locations' => LocationResource::collection($shipping)->resolve(),
             'not_shipping' => $shop->locations()->where('is_active', true)->where('ships', false)->orderBy('name')->pluck('name'),
-            'updated_at' => $updatedAt,
+            'updated_at' => $config?->updated_at?->toIso8601String(),
+            'checkout_sync' => [
+                'status' => $config?->checkout_sync_status ?? 'not_configured',
+                'error' => $config?->checkout_sync_error,
+                'synced_at' => $config?->checkout_synced_at?->toIso8601String(),
+            ],
         ];
     }
 }

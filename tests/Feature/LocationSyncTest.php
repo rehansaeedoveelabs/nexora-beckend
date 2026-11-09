@@ -3,12 +3,15 @@
 namespace Tests\Feature;
 
 use App\Jobs\BootstrapShop;
+use App\Jobs\SyncCheckoutRoutingConfig;
 use App\Jobs\SyncLocation;
 use App\Models\Location;
 use App\Services\Locations\LocationSync;
+use App\Services\Routing\RoutingConfigCompiler;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Sleep;
 use Tests\Concerns\InteractsWithShopify;
 use Tests\TestCase;
@@ -104,6 +107,36 @@ class LocationSyncTest extends TestCase
         (new SyncLocation($shop->id, 'gid://shopify/Location/5'))->handle(app(LocationSync::class));
 
         $this->assertDatabaseCount('locations', 0);
+    }
+
+    public function test_shopify_location_changes_resync_saved_checkout_rules(): void
+    {
+        $shop = $this->installedShop();
+        $location = $shop->locations()->create([
+            'shopify_id' => 'gid://shopify/Location/5',
+            'name' => 'Warehouse',
+            'type' => Location::TYPE_WAREHOUSE,
+            'is_active' => true,
+            'ships' => false,
+        ]);
+        $compiler = app(RoutingConfigCompiler::class);
+        $settings = $compiler->defaults($shop);
+        $shop->routingConfig()->create([
+            'settings' => $settings,
+            'compiled' => $compiler->compile($shop, $settings),
+            'schema_version' => RoutingConfigCompiler::SCHEMA_VERSION,
+            'checkout_sync_status' => 'synced',
+        ]);
+        Queue::fake();
+        Http::fake([
+            $this->graphqlUrl() => Http::response(['data' => ['location' => $this->locationNode(5, 'Warehouse')]]),
+        ]);
+
+        app(LocationSync::class)->syncOne($shop, $location->shopify_id);
+
+        $this->assertTrue($location->fresh()->ships);
+        $this->assertSame('pending', $shop->routingConfig()->first()->checkout_sync_status);
+        Queue::assertPushed(SyncCheckoutRoutingConfig::class, fn ($job) => $job->shopId === $shop->id);
     }
 
     public function test_throttled_request_is_retried(): void

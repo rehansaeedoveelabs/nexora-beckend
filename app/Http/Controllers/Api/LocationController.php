@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\LocationResource;
 use App\Jobs\BootstrapShop;
+use App\Jobs\SyncCheckoutRoutingConfig;
 use App\Models\Location;
 use App\Services\Activity\ActivityLogger;
 use Illuminate\Database\Eloquent\Builder;
@@ -69,6 +70,7 @@ class LocationController extends Controller
             $validated['tags'] = array_values(array_map('trim', $validated['tags']));
         }
 
+        $checkoutRelevantChanged = array_key_exists('type', $validated) && $location->type !== $validated['type'];
         $changed = array_keys($validated);
         DB::transaction(function () use ($location, $validated, $changed, $shop) {
             $location->update($validated);
@@ -89,6 +91,10 @@ class LocationController extends Controller
                 );
             }
         });
+
+        if ($checkoutRelevantChanged) {
+            SyncCheckoutRoutingConfig::queueFor($shop);
+        }
 
         return response()->json([
             'data' => new LocationResource($location),
@@ -120,6 +126,10 @@ class LocationController extends Controller
 
             return $updated;
         });
+
+        if ($updated > 0) {
+            SyncCheckoutRoutingConfig::queueFor($shop);
+        }
 
         return response()->json([
             'data' => ['updated' => $updated],

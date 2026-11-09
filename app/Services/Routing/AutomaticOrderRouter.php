@@ -6,6 +6,7 @@ use App\Exceptions\ShopifyApiException;
 use App\Models\Location;
 use App\Models\Shop;
 use App\Services\Activity\ActivityLogger;
+use App\Services\Flow\FlowTriggerEmitter;
 use App\Services\Shopify\AdminGraphql;
 use App\Services\Shopify\ShopifyCapacityReader;
 use App\Services\Shopify\ShopifyFulfillmentMover;
@@ -31,6 +32,7 @@ class AutomaticOrderRouter
         private readonly ShopifyCapacityReader $capacity,
         private readonly ShopifyFulfillmentMover $fulfillmentMover,
         private readonly ActivityLogger $activity,
+        private readonly FlowTriggerEmitter $flow,
     ) {}
 
     public function route(Shop $shop, int $orderId): void
@@ -180,6 +182,16 @@ class AutomaticOrderRouter
                 ? "Shopify only partially moved the order to {$destination->name}; review the remaining fulfillment in Shopify."
                 : "Automatically routed the order to {$destination->name} using the saved routing rules.",
         );
+
+        // Already inside a queued job, so emit synchronously here. Payload keys are
+        // kept identical to the manual path (OrderController::reassign) and match the
+        // nexora-order-rerouted Flow trigger schema (order_reference -> order_id int).
+        $this->flow->emit($shop, 'order_rerouted', [
+            'order_id' => $orderId,
+            'destination' => $destination->name,
+            'partial' => $result['partial'],
+            'trigger' => 'automatic',
+        ]);
     }
 
     private function loadOrder(Shop $shop, int $orderId): ?array
