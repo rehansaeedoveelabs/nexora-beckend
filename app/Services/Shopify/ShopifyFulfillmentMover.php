@@ -5,62 +5,27 @@ namespace App\Services\Shopify;
 use App\Exceptions\ShopifyApiException;
 use App\Models\Location;
 use App\Models\Shop;
+use App\Services\Routing\FulfillmentDestinationGuard;
 
 class ShopifyFulfillmentMover
 {
-    public function __construct(private readonly AdminGraphql $graphql) {}
+    public function __construct(
+        private readonly AdminGraphql $graphql,
+        private readonly FulfillmentDestinationGuard $destinationGuard,
+    ) {}
 
     public function move(Shop $shop, int $orderId, Location $destination): array
     {
-        $order = $this->graphql->query($shop, <<<'GQL'
-            query OrderFulfillmentForMove($id: ID!) {
-                node(id: $id) {
-                    ... on Order {
-                        id
-                        name
-                        cancelledAt
-                        displayFulfillmentStatus
-                        fulfillmentOrders(first: 2) {
-                            nodes {
-                                id
-                                status
-                                requestStatus
-                                assignedLocation { location { id } }
-                            }
-                        }
-                    }
-                }
-            }
-        GQL, ['id' => "gid://shopify/Order/{$orderId}"])['node'] ?? null;
-
-        if ($order === null) {
-            return ['status' => 'not_found'];
+        $evaluation = $this->destinationGuard->evaluate($shop, $orderId, $destination);
+        if ($evaluation['status'] !== 'ok') {
+            return [
+                'status' => $evaluation['status'],
+                'message' => $evaluation['message'] ?? null,
+            ];
         }
 
-        if (($order['cancelledAt'] ?? null) !== null || ($order['displayFulfillmentStatus'] ?? null) !== 'UNFULFILLED') {
-            return ['status' => 'blocked', 'message' => 'Only uncancelled, unfulfilled orders can be reassigned.'];
-        }
-
-        $fulfillmentOrders = $order['fulfillmentOrders']['nodes'] ?? [];
-        if (count($fulfillmentOrders) !== 1) {
-            return ['status' => 'blocked', 'message' => 'Only orders with one fulfillment order can be reassigned here.'];
-        }
-
-        $fulfillmentOrder = $fulfillmentOrders[0];
-        if (($fulfillmentOrder['status'] ?? null) !== 'OPEN'
-            || ! in_array($fulfillmentOrder['requestStatus'] ?? null, [null, 'UNSUBMITTED'], true)) {
-            return ['status' => 'blocked', 'message' => 'Shopify has already started or requested this fulfillment, so it cannot be reassigned here.'];
-        }
-
-        $sourceShopifyId = $fulfillmentOrder['assignedLocation']['location']['id'] ?? null;
-        $source = $sourceShopifyId === null
-            ? null
-            : $shop->locations()->where('shopify_id', $sourceShopifyId)->first(['id', 'managed_by_app']);
-        if ($source === null
-            || $sourceShopifyId === $destination->shopify_id
-            || $source->managed_by_app !== null) {
-            return ['status' => 'blocked', 'message' => 'This fulfillment is not assigned to a supported merchant-managed location.'];
-        }
+        $order = $evaluation['order'];
+        $fulfillmentOrder = $evaluation['fulfillment_order'];
 
         try {
             $payload = $this->graphql->mutate($shop, <<<'GQL'

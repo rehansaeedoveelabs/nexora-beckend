@@ -86,18 +86,11 @@ class AutomaticOrderRouterTest extends TestCase
                     ]]]);
                 }
 
-                if (str_contains($query, 'OrderFulfillmentForMove')) {
-                    return Http::response(['data' => ['node' => [
-                        'name' => '#1001',
-                        'cancelledAt' => null,
-                        'displayFulfillmentStatus' => 'UNFULFILLED',
-                        'fulfillmentOrders' => ['nodes' => [[
-                            'id' => 'gid://shopify/FulfillmentOrder/1',
-                            'status' => 'OPEN',
-                            'requestStatus' => 'UNSUBMITTED',
-                            'assignedLocation' => ['location' => ['id' => $this->store->shopify_id]],
-                        ]]],
-                    ]]]);
+                if (str_contains($query, 'OrderForFulfillmentMove')) {
+                    return Http::response(['data' => ['node' => $this->orderNode([
+                        $this->store->shopify_id => 8,
+                        $this->warehouse->shopify_id => 5,
+                    ])]]);
                 }
 
                 if (str_contains($query, 'MoveFulfillmentOrder')) {
@@ -245,6 +238,7 @@ class AutomaticOrderRouterTest extends TestCase
         }
 
         return [
+            'id' => 'gid://shopify/Order/1001',
             'name' => '#1001',
             'cancelledAt' => null,
             'displayFulfillmentStatus' => 'UNFULFILLED',
@@ -256,7 +250,11 @@ class AutomaticOrderRouterTest extends TestCase
                     'variant' => [
                         'product' => ['tags' => ['fragile']],
                         'inventoryItem' => ['inventoryLevels' => [
-                            'nodes' => $levels,
+                            'nodes' => array_map(function (array $level) {
+                                $level['quantities'][] = ['name' => 'safety_stock', 'quantity' => 0];
+
+                                return $level;
+                            }, $levels),
                             'pageInfo' => ['hasNextPage' => false],
                         ]],
                     ],

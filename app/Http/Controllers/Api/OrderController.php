@@ -17,6 +17,8 @@ class OrderController extends Controller
 {
     private const REQUIRED_SCOPES = ['read_orders', 'read_third_party_fulfillment_orders'];
 
+    private const REASSIGN_SCOPES = ['read_inventory', 'write_merchant_managed_fulfillment_orders'];
+
     public function __construct(
         private readonly ShopifyOrderReader $orders,
         private readonly ShopifyFulfillmentMover $fulfillmentMover,
@@ -125,8 +127,10 @@ class OrderController extends Controller
             || in_array('write_merchant_managed_fulfillment_orders', $granted, true);
 
         if ($forReassignment) {
-            if (! in_array('write_merchant_managed_fulfillment_orders', $granted, true)) {
-                $missing[] = 'write_merchant_managed_fulfillment_orders';
+            foreach (self::REASSIGN_SCOPES as $scope) {
+                if (! in_array($scope, $granted, true)) {
+                    $missing[] = $scope;
+                }
             }
         } elseif (! $hasMerchantManagedRead) {
             $missing[] = 'read_merchant_managed_fulfillment_orders';
@@ -136,9 +140,11 @@ class OrderController extends Controller
             return null;
         }
 
+        $missing = array_values(array_unique($missing));
+
         return response()->json([
-            'message' => in_array('write_merchant_managed_fulfillment_orders', $missing, true)
-                ? 'Order reassignment is unavailable until Shopify grants Nexora the merchant-managed fulfillment write permission. Reopen Nexora in Shopify Admin and approve the requested access.'
+            'message' => array_intersect(self::REASSIGN_SCOPES, $missing) !== []
+                ? 'Order reassignment is unavailable until Shopify grants Nexora inventory read and merchant-managed fulfillment write permissions. Reopen Nexora in Shopify Admin and approve the requested access.'
                 : 'The installed Shopify permission grant does not include the access Nexora needs to read orders. Open Nexora in Shopify Admin and approve the requested permission update, then retry.',
             'meta' => ['missing_scopes' => $missing],
         ], 403);
