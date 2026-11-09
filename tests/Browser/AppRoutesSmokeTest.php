@@ -129,7 +129,7 @@ class AppRoutesSmokeTest extends DuskTestCase
     {
         $this->browse(function (Browser $browser) {
             foreach ([
-                '/savings' => ['Shipping savings', 'Savings are not yet measurable'],
+                '/savings' => ['Shipping savings', 'Savings are not yet measurable', 'Live operational data'],
                 '/settings/notifications' => ['Settings', 'Notification delivery isn’t connected'],
                 '/settings/billing' => ['Plan & usage', 'Shopify Billing isn’t connected'],
             ] as $path => [$heading, $status]) {
